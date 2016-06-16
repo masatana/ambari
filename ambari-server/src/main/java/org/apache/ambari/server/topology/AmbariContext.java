@@ -31,6 +31,7 @@ import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 
 import org.apache.ambari.server.AmbariException;
@@ -76,7 +77,6 @@ import org.apache.ambari.server.utils.RetryHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 

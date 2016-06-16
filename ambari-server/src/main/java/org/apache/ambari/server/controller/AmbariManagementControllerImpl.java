@@ -705,7 +705,7 @@ public class AmbariManagementControllerImpl implements AmbariManagementControlle
       return;
     }
     Set<String> needRestartServices = ambariMetaInfo.getRestartRequiredServicesNames(
-      stackId.getStackName(), stackId.getStackVersion());
+        stackId.getStackName(), stackId.getStackVersion());
 
     if(needRestartServices.contains(service.getName())) {
       Map<String, ServiceComponent> m = service.getServiceComponents();
@@ -2667,6 +2667,7 @@ public class AmbariManagementControllerImpl implements AmbariManagementControlle
                     newState == State.INSTALLED && !isClientComponent(cluster, scHost)) {
               LOG.info("Skipping create of INSTALL task for {} on {} because host is sysprepped.", scHost
                 .getServiceComponentName(), scHost.getHostName());
+              scHost.setState(State.INSTALLED);
             } else {
               createHostAction(cluster, stage, scHost, configurations, configurationAttributes, configTags,
                 roleCommand, requestParameters, event);
