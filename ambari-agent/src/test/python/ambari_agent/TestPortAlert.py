@@ -387,7 +387,7 @@ class TestPortAlert(TestCase):
     host = 'host1'
     expected_state = 'OK'
     expected_text = 'TCP OK - 0.2010 response on port 2181'
-    time.side_effect = [120, 123, 5240, 567]
+    time.side_effect = [123, 324, 567]
     alert = PortAlert(alert_meta, alert_source_meta, self.config)
     alert.set_cluster(cluster, host)
 
