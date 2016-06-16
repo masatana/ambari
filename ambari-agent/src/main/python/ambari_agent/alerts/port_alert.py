@@ -130,6 +130,14 @@ class PortAlert(BaseAlert):
 
       start_time = time.time()
       s.connect((host, port))
+      if self.get_name() == "zookeeper_server_process":
+        s.sendall(b"ruok")
+        while True:
+          data = s.recv(1024)
+          if data == "":
+            break
+          if data == b"imok":
+            continue # success
       end_time = time.time()
       milliseconds = end_time - start_time
       seconds = milliseconds / 1000.0
