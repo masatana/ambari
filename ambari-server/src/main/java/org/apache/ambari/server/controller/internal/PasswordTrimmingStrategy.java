@@ -16,17 +16,16 @@
  * limitations under the License.
  */
 
-package org.apache.ambari.view.tez.exceptions;
+package org.apache.ambari.server.controller.internal;
 
+public class PasswordTrimmingStrategy implements TrimmingStrategy {
+  @Override
+  public String trim(String stringToTrim) {
+    return stringToTrim;
+  }
 
-import org.apache.ambari.view.utils.ambari.AmbariApiException;
-
-import javax.ws.rs.WebApplicationException;
-
-public class ActiveRMFetchException extends WebApplicationException {
-
-  public ActiveRMFetchException(AmbariApiException ex) {
-    super(ex.toEntity());
-
+  @Override
+  public String toString(){
+    return "PasswordTrimmingStrategy";
   }
 }

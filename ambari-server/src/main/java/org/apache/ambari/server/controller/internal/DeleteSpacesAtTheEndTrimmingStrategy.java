@@ -1,4 +1,4 @@
-/*
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -16,33 +16,19 @@
  * limitations under the License.
  */
 
-package org.apache.ambari.view.hive2.actor.message;
+package org.apache.ambari.server.controller.internal;
 
-public abstract class HiveJob {
-
-  private final String username;
-  private final Type type;
-
-  public HiveJob(Type type, String username) {
-    this.type = type;
-    this.username = username;
+public class DeleteSpacesAtTheEndTrimmingStrategy implements TrimmingStrategy {
+  @Override
+  public String trim(String stringToTrim) {
+    if (" ".equals(stringToTrim)) {
+      return stringToTrim;
+    }
+    return stringToTrim.replaceAll("\\s+$", "");
   }
 
-  public String getUsername() {
-    return username;
+  @Override
+  public String toString(){
+    return "DeleteSpacesAtTheEndTrimmingStrategy";
   }
-
-
-
-
-  public Type getType() {
-    return type;
-  }
-
-
-  public enum Type {
-    SYNC,
-    ASYNC
-  }
-
 }

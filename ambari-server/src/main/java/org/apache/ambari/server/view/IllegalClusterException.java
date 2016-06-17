@@ -6,9 +6,9 @@
  * to you under the Apache License, Version 2.0 (the
  * "License"); you may not use this file except in compliance
  * with the License.  You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,17 +16,15 @@
  * limitations under the License.
  */
 
-package org.apache.ambari.view.tez.exceptions;
+package org.apache.ambari.server.view;
 
-import org.apache.ambari.view.utils.ambari.AmbariApiException;
+public class IllegalClusterException extends RuntimeException {
 
-import javax.ws.rs.WebApplicationException;
-
-public class ATSUrlFetchException extends WebApplicationException {
-
-  public ATSUrlFetchException(AmbariApiException ex) {
-    super(ex.toEntity());
-
+  public IllegalClusterException(Throwable ex) {
+    this("Failed to get cluster information associated with this view instance", ex);
   }
 
+  public IllegalClusterException(String message, Throwable cause) {
+    super(message, cause);
+  }
 }

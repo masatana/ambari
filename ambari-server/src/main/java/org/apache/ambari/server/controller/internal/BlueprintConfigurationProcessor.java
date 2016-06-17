@@ -334,7 +334,38 @@ public class BlueprintConfigurationProcessor {
 
     setMissingConfigurations(clusterConfig, configTypesUpdated);
 
+    trimProperties(clusterConfig, clusterTopology);
+
     return configTypesUpdated;
+  }
+
+  private void trimProperties(Configuration clusterConfig, ClusterTopology clusterTopology) {
+    Blueprint blueprint = clusterTopology.getBlueprint();
+    Stack stack = blueprint.getStack();
+
+    Map<String, Map<String, String>> configTypes = clusterConfig.getFullProperties();
+    for (String configType : configTypes.keySet()) {
+      Map<String,String> properties = configTypes.get(configType);
+      for (String propertyName : properties.keySet()) {
+        trimPropertyValue(clusterConfig, stack, configType, properties, propertyName);
+      }
+    }
+  }
+
+  private void trimPropertyValue(Configuration clusterConfig, Stack stack, String configType, Map<String, String> properties, String propertyName) {
+    if (propertyName != null && properties.get(propertyName) != null) {
+
+      TrimmingStrategy trimmingStrategy =
+        PropertyValueTrimmingStrategyDefiner.defineTrimmingStrategy(stack, propertyName, configType);
+      String oldValue = properties.get(propertyName);
+      String newValue = trimmingStrategy.trim(oldValue);
+
+      if (!newValue.equals(oldValue)){
+        LOG.debug(String.format("Changing value for config %s property %s from [%s] to [%s]",
+          configType, propertyName, oldValue, newValue));
+        clusterConfig.setProperty(configType, propertyName, newValue);
+      }
+    }
   }
 
   /**
@@ -2685,15 +2716,18 @@ public class BlueprintConfigurationProcessor {
     amsSiteMap.put("timeline.metrics.service.webapp.address", new SingleHostTopologyUpdater("METRICS_COLLECTOR") {
       @Override
       public String updateForClusterCreate(String propertyName, String origValue, Map<String, Map<String, String>> properties, ClusterTopology topology) {
-        String value = origValue;
-        if (isSpecialNetworkAddress(origValue)) {
-          value = origValue.replace(BIND_ALL_IP_ADDRESS, "localhost");
-        }
         int metricsCollectorsCount = topology.getHostAssignmentsForComponent("METRICS_COLLECTOR").size();
         if (metricsCollectorsCount == 1) {
+          String value = origValue;
+          //localhost will be replaced with real hostname in updateForClusterCreate()
+          if (isSpecialNetworkAddress(origValue)) {
+            value = origValue.replace(BIND_ALL_IP_ADDRESS, "localhost");
+          }
           return super.updateForClusterCreate(propertyName, value, properties, topology);
+        } else {
+          //For multiple collectors
+          return origValue.replace("localhost", BIND_ALL_IP_ADDRESS);
         }
-        return origValue;
       }
     });
   }
