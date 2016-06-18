@@ -421,7 +421,7 @@ class TestPortAlert(TestCase):
     cluster = 'c1'
     host = 'host1'
     expected_state = 'WARNING'
-    expected_text = 'TCP OK - 3.1170 response on port 8080'
+    expected_text = 'TCP OK - 3.1170 response on port 2181'
     time.side_effect = [123, 3240, 567]
     alert = PortAlert(alert_meta, alert_source_meta, self.config)
     alert.set_cluster(cluster, host)
@@ -455,13 +455,13 @@ class TestPortAlert(TestCase):
       'enabled': 'true'
     }
     alert_source_meta = {
-      'uri': 'http://192.168.0.1:8080',
+      'uri': 'http://192.168.0.1:2181',
       'default_port': 80
     }
     cluster = 'c1'
     host = 'host1'
     expected_state = 'CRITICAL'
-    expected_text = 'Connection failed: Socket Timeout to 192.168.0.1:8080'
+    expected_text = 'Connection failed: Socket Timeout to 192.168.0.1:2181'
     time.side_effect = [123, 5240, 567]
     alert = PortAlert(alert_meta, alert_source_meta, self.config)
     alert.set_cluster(cluster, host)
