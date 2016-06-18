@@ -375,8 +375,8 @@ class TestPortAlert(TestCase):
       'enabled': 'true'
     }
     alert_source_meta = {
-      'uri': 'http://192.168.0.1',
-      'default_port': 2181,
+      'uri': 'http://192.168.0.1:2181',
+      'default_port': 80,
     }
     cluster = 'c1'
     host = 'host1'
