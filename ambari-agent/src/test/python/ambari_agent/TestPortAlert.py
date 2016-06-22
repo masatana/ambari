@@ -377,6 +377,7 @@ class TestPortAlert(TestCase):
     alert_source_meta = {
       'uri': 'http://192.168.0.1:2181',
       'default_port': 80,
+      'socket_command': "ruok",
     }
     cluster = 'c1'
     host = 'host1'
@@ -412,11 +413,12 @@ class TestPortAlert(TestCase):
       'serviceName': 'service1',
       'componentName': 'component1',
       'uuid': '123',
-      'enabled': 'true'
+      'enabled': 'true',
     }
     alert_source_meta = {
       'uri': 'http://192.168.0.1:2181',
-      'default_port': 2181
+      'default_port': 2181,
+      'socket_command': "ruok",
     }
     cluster = 'c1'
     host = 'host1'
@@ -456,7 +458,8 @@ class TestPortAlert(TestCase):
     }
     alert_source_meta = {
       'uri': 'http://192.168.0.1:2181',
-      'default_port': 80
+      'default_port': 80,
+      'socket_command': "ruok",
     }
     cluster = 'c1'
     host = 'host1'
