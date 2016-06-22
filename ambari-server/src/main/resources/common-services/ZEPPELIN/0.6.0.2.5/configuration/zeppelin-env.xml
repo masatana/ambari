@@ -21,6 +21,33 @@
     <name>zeppelin_pid_dir</name>
     <value>/var/run/zeppelin</value>
     <description>Dir containing process ID file</description>
+    <value-attributes>
+      <type>directory</type>
+      <overridable>false</overridable>
+      <editable-only-at-install>true</editable-only-at-install>
+    </value-attributes>
+    <on-ambari-upgrade add="true"/>
+  </property>
+  <property>
+    <name>zeppelin_user</name>
+    <value>zeppelin</value>
+    <property-type>USER</property-type>
+    <description>User zeppelin daemon runs as</description>
+    <value-attributes>
+      <type>user</type>
+      <overridable>false</overridable>
+    </value-attributes>
+    <on-ambari-upgrade add="true"/>
+  </property>
+  <property>
+    <name>zeppelin_group</name>
+    <value>zeppelin</value>
+    <property-type>GROUP</property-type>
+    <description>zeppelin group</description>
+    <value-attributes>
+      <type>user</type>
+      <overridable>false</overridable>
+    </value-attributes>
     <on-ambari-upgrade add="true"/>
   </property>
   <property>
@@ -191,6 +218,23 @@ log4j.appender.dailyfile.layout.ConversionPattern=%5p [%d] ({%t} %F[%M]:%L) - %m
     <value>/apps/zeppelin</value>
     <description>Shared location where zeppelin spark jar will be copied to. Should be accesible
       by all cluster nodes
+    </description>
+    <on-ambari-upgrade add="true"/>
+  </property>
+
+  <property>
+    <name>zeppelin.server.kerberos.principal</name>
+    <value>none</value>
+    <description>
+      Kerberos principal name for the Zeppelin.
+    </description>
+    <on-ambari-upgrade add="true"/>
+  </property>
+  <property>
+    <name>zeppelin.server.kerberos.keytab</name>
+    <value>none</value>
+    <description>
+      Location of the kerberos keytab file for the Zeppelin.
     </description>
     <on-ambari-upgrade add="true"/>
   </property>

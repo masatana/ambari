@@ -251,31 +251,36 @@ public class InputFile extends Input {
    */
   @Override
   void start() throws Exception {
+
     if (logPathFiles == null || logPathFiles.length == 0) {
       return;
     }
-
-    if (isTail()) {
-      // Just process the first file
-      processFile(logPathFiles[0]);
-    } else {
-      for (File file : logPathFiles) {
-        try {
-          processFile(file);
-          if (isClosed() || isDrain()) {
-            logger.info("isClosed or isDrain. Now breaking loop.");
-            break;
+    boolean isProcessFile = getBooleanValue("process_file", true);
+    if (isProcessFile) {
+      if (isTail()) {
+        // Just process the first file
+        processFile(logPathFiles[0]);
+      } else {
+        for (File file : logPathFiles) {
+          try {
+            processFile(file);
+            if (isClosed() || isDrain()) {
+              logger.info("isClosed or isDrain. Now breaking loop.");
+              break;
+            }
+          } catch (Throwable t) {
+            logger.error("Error processing file=" + file.getAbsolutePath(), t);
           }
-        } catch (Throwable t) {
-          logger.error(
-            "Error processing file=" + file.getAbsolutePath(),
-            t);
         }
       }
+      // Call the close for the input. Which should flush to the filters and
+      // output
+      close();
+    }else{
+      //copy files
+      copyFiles(logPathFiles);
     }
-    // Call the close for the input. Which should flush to the filters and
-    // output
-    close();
+    
   }
 
   @Override
@@ -558,5 +563,25 @@ public class InputFile extends Input {
       + ", path="
       + (logPathFiles != null && logPathFiles.length > 0 ? logPathFiles[0]
       .getAbsolutePath() : getStringValue("path"));
+  }
+  
+  
+  public void copyFiles(File[] files) {
+    boolean isCopyFile = getBooleanValue("copy_file", false);
+    if (isCopyFile && files != null) {
+      for (File file : files) {
+        try {
+          InputMarker marker = new InputMarker();
+          marker.input = this;
+          outputMgr.copyFile(file, marker);
+          if (isClosed() || isDrain()) {
+            logger.info("isClosed or isDrain. Now breaking loop.");
+            break;
+          }
+        } catch (Throwable t) {
+          logger.error("Error processing file=" + file.getAbsolutePath(), t);
+        }
+      }
+    }
   }
 }

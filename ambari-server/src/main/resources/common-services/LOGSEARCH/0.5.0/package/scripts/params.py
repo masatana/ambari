@@ -40,6 +40,7 @@ tmp_dir = Script.get_tmp_dir()
 
 stack_version = default("/commandParams/version", None)
 sudo = AMBARI_SUDO_BINARY
+security_enabled = status_params.security_enabled
 
 logsearch_solr_conf = "/etc/ambari-logsearch-solr/conf"
 logsearch_server_conf = "/etc/ambari-logsearch-portal/conf"
@@ -123,6 +124,25 @@ if 'zoo.cfg' in config['configurations']:
   zoo_cfg_properties_map = config['configurations']['zoo.cfg']
 else:
   zoo_cfg_properties_map = {}
+
+
+
+if security_enabled:
+  kinit_path_local = status_params.kinit_path_local
+  _hostname_lowercase = config['hostname'].lower()
+  logsearch_jaas_file = logsearch_server_conf + '/logsearch_jaas.conf'
+  logsearch_solr_jaas_file = logsearch_solr_conf + '/logsearch_solr_jaas.conf'
+  logfeeder_jaas_file = logsearch_logfeeder_conf + '/logfeeder_jaas.conf'
+  logsearch_solr_kerberos_keytab = config['configurations']['logsearch-solr-env']['logsearch_solr_kerberos_keytab']
+  logsearch_solr_kerberos_principal = config['configurations']['logsearch-solr-env']['logsearch_solr_kerberos_principal'].replace('_HOST',_hostname_lowercase)
+  logsearch_solr_web_kerberos_keytab = config['configurations']['logsearch-solr-env']['logsearch_solr_web_kerberos_keytab']
+  logsearch_solr_web_kerberos_principal = config['configurations']['logsearch-solr-env']['logsearch_solr_web_kerberos_principal'].replace('_HOST',_hostname_lowercase)
+  logsearch_kerberos_keytab = config['configurations']['logsearch-env']['logsearch_kerberos_keytab']
+  logsearch_kerberos_principal = config['configurations']['logsearch-env']['logsearch_kerberos_principal'].replace('_HOST',_hostname_lowercase)
+  logfeeder_kerberos_keytab = config['configurations']['logfeeder-env']['logfeeder_kerberos_keytab']
+  logfeeder_kerberos_principal = config['configurations']['logfeeder-env']['logfeeder_kerberos_principal'].replace('_HOST',_hostname_lowercase)
+  logsearch_solr_kerberos_name_rules = config['configurations']['logsearch-solr-env']['logsearch_solr_kerberos_name_rules']
+
 
 logsearch_solr_user = config['configurations']['logsearch-solr-env']['logsearch_solr_user']
 logsearch_solr_log_dir = config['configurations']['logsearch-solr-env']['logsearch_solr_log_dir']
@@ -231,8 +251,7 @@ hbase_log_dir = default('/configurations/hbase-env/hbase_log_dir', '/var/log/hba
 hdfs_log_dir_prefix = default('/configurations/hadoop-env/hdfs_log_dir_prefix', '/var/log/hadoop')
 hive_log_dir = default('/configurations/hive-env/hive_log_dir', '/var/log/hive')
 kafka_log_dir = default('/configurations/kafka-env/kafka_log_dir', '/var/log/kafka')
-nifi_master_log_dir = default('/configurations/nifi-bootstrap-env/nifi_master_log_dir', '/var/log/nifi_master')
-nifi_node_log_dir = default('/configurations/nifi-bootstrap-env/nifi_nod_log_dir', '/var/log/nifi_node')
+nifi_log_dir = default('/configurations/nifi-env/nifi_node_log_dir', '/var/log/nifi')
 oozie_log_dir = default('/configurations/oozie-env/oozie_log_dir', '/var/log/oozie')
 ranger_usersync_log_dir = default('/configurations/ranger-env/ranger_usersync_log_dir', '/var/log/ranger/usersync')
 ranger_admin_log_dir = default('/configurations/ranger-env/ranger_admin_log_dir', '/var/log/ranger/admin')
@@ -326,3 +345,9 @@ logfeeder_custom_properties.pop('logfeeder.checkpoint.folder', None)
 logfeeder_custom_properties.pop('logfeeder.metrics.collector.hosts', None)
 logfeeder_custom_properties.pop('logfeeder.log.filter.enable', None)
 logfeeder_custom_properties.pop('logfeeder.solr.config.interval', None)
+
+logsearch_server_hosts = config['clusterHostInfo']['logsearch_server_hosts']
+logsearch_server_host = ""
+if logsearch_server_hosts is not None and len(logsearch_server_hosts) > 0:
+  logsearch_server_host = logsearch_server_hosts[0]
+smoke_logsearch_cmd = format('curl -s -o /dev/null -w "%{{http_code}}" http://{logsearch_server_host}:{logsearch_ui_port}/login.jsp | grep 200')

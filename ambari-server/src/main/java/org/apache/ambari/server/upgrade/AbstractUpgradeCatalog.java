@@ -18,9 +18,13 @@
 package org.apache.ambari.server.upgrade;
 
 import javax.persistence.EntityManager;
+import javax.xml.bind.JAXBException;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
+import java.io.File;
+import java.io.FilenameFilter;
+import java.io.IOException;
 import java.io.StringReader;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -34,7 +38,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.Stack;
+import java.util.StringTokenizer;
 import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.persistence.EntityManager;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.apache.ambari.server.AmbariException;
 import org.apache.ambari.server.api.services.AmbariMetaInfo;
@@ -68,6 +80,8 @@ import org.apache.ambari.server.state.kerberos.KerberosDescriptorFactory;
 import org.apache.ambari.server.state.kerberos.KerberosIdentityDescriptor;
 import org.apache.ambari.server.state.kerberos.KerberosServiceDescriptor;
 import org.apache.ambari.server.utils.VersionUtils;
+import org.apache.ambari.server.view.ViewArchiveUtility;
+import org.apache.ambari.server.view.configuration.ViewConfig;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,6 +103,8 @@ public abstract class AbstractUpgradeCatalog implements UpgradeCatalog {
   protected Configuration configuration;
   @Inject
   protected StackUpgradeUtil stackUpgradeUtil;
+  @Inject
+  protected ViewArchiveUtility archiveUtility;
 
   protected Injector injector;
 
@@ -114,6 +130,10 @@ public abstract class AbstractUpgradeCatalog implements UpgradeCatalog {
   private static final String PROPERTY_HIVE_SERVER2_AUTHENTICATION = "hive.server2.authentication";
   public static final String PROPERTY_RANGER_HBASE_PLUGIN_ENABLED = "ranger-hbase-plugin-enabled";
   public static final String PROPERTY_RANGER_KNOX_PLUGIN_ENABLED = "ranger-knox-plugin-enabled";
+
+  public static final String YARN_SCHEDULER_CAPACITY_ROOT_QUEUE = "yarn.scheduler.capacity.root";
+  public static final String YARN_SCHEDULER_CAPACITY_ROOT_QUEUES = "yarn.scheduler.capacity.root.queues";
+  public static final String QUEUES = "queues";
 
   public static final String ALERT_URL_PROPERTY_CONNECTION_TIMEOUT = "connection_timeout";
 
@@ -877,6 +897,80 @@ public abstract class AbstractUpgradeCatalog implements UpgradeCatalog {
   @Override
   public void upgradeData() throws AmbariException, SQLException {
     executeDMLUpdates();
+    updateTezHistoryUrlBase();
+  }
+
+  /**
+   * Version of the Tez view changes with every new version on Ambari. Hence the 'tez.tez-ui.history-url.base' in tez-site.xml
+   * has to be changed every time ambari update happens. This will read the latest tez-view jar file and find out the
+   * view version by reading the view.xml file inside it and update the 'tez.tez-ui.history-url.base' property in tez-site.xml
+   * with the proper value of the updated tez view version.
+   */
+  private void updateTezHistoryUrlBase() throws AmbariException {
+    AmbariManagementController ambariManagementController = injector.getInstance(AmbariManagementController.class);
+    Clusters clusters = ambariManagementController.getClusters();
+
+    if (clusters != null) {
+      Map<String, Cluster> clusterMap = clusters.getClusters();
+      if (clusterMap != null && !clusterMap.isEmpty()) {
+        for (final Cluster cluster : clusterMap.values()) {
+          Set<String> installedServices = cluster.getServices().keySet();
+          if (installedServices.contains("TEZ")) {
+            Config tezSite = cluster.getDesiredConfigByType("tez-site");
+            if (tezSite != null) {
+              String currentTezHistoryUrlBase = tezSite.getProperties().get("tez.tez-ui.history-url.base");
+              if(currentTezHistoryUrlBase != null && !currentTezHistoryUrlBase.isEmpty()) {
+                String newTezHistoryUrlBase = getUpdatedTezHistoryUrlBase(currentTezHistoryUrlBase);
+                updateConfigurationProperties("tez-site", Collections.singletonMap("tez.tez-ui.history-url.base", newTezHistoryUrlBase), true, false);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  protected String getUpdatedTezHistoryUrlBase(String currentTezHistoryUrlBase) throws AmbariException{
+    String pattern = "(.*\\/TEZ\\/)(.*)(\\/TEZ_CLUSTER_INSTANCE)";
+    Pattern regex = Pattern.compile(pattern);
+    Matcher matcher = regex.matcher(currentTezHistoryUrlBase);
+    String prefix;
+    String suffix;
+    String oldVersion;
+    if (matcher.find()) {
+      prefix = matcher.group(1);
+      oldVersion = matcher.group(2);
+      suffix = matcher.group(3);
+    } else {
+      throw new AmbariException("Cannot prepare the new value for property: 'tez.tez-ui.history-url.base' using the old value: '" + currentTezHistoryUrlBase + "'");
+    }
+
+    String latestTezViewVersion = getLatestTezViewVersion(oldVersion);
+
+    return prefix + latestTezViewVersion + suffix;
+  }
+
+  protected String getLatestTezViewVersion(String oldVersion) {
+    File viewsDirectory = configuration.getViewsDir();
+    File[] files = viewsDirectory.listFiles(new FilenameFilter() {
+      @Override
+      public boolean accept(File dir, String name) {
+        return name.startsWith("tez-view");
+      }
+    });
+
+    if(files == null || files.length == 0) {
+      LOG.error("Could not file tez-view jar file in '{}'. Returning the old version", viewsDirectory.getAbsolutePath());
+      return oldVersion;
+    }
+    File tezViewFile = files[0];
+    try {
+      ViewConfig viewConfigFromArchive = archiveUtility.getViewConfigFromArchive(tezViewFile);
+      return viewConfigFromArchive.getVersion();
+    } catch (JAXBException | IOException e) {
+      LOG.error("Failed to read the tez view version from: {}. Returning the old version", tezViewFile);
+      return oldVersion;
+    }
   }
 
   @Override
@@ -913,4 +1007,74 @@ public abstract class AbstractUpgradeCatalog implements UpgradeCatalog {
   public void onPostUpgrade() throws AmbariException, SQLException {
     // NOOP
   }
+
+  /**
+   * Validate queueNameProperty exists for configType in cluster and corresponds to one of validLeafQueues
+   * @param cluster cluster to operate with
+   * @param validLeafQueues Set of YARN capacity-scheduler leaf queues
+   * @param queueNameProperty queue name property to check and update
+   * @param configType config type name
+   * @return
+   */
+  protected boolean isQueueNameValid(Cluster cluster, Set<String> validLeafQueues, String queueNameProperty, String configType) {
+    Config site = cluster.getDesiredConfigByType(configType);
+    Map<String, String> properties = site.getProperties();
+    boolean result = properties.containsKey(queueNameProperty) && validLeafQueues.contains(properties.get(queueNameProperty));
+    if (!result){
+      LOG.info("Queue name " + queueNameProperty + " in " + configType + " not defined or not corresponds to valid capacity-scheduler queue");
+    }
+    return result;
+  }
+
+
+  /**
+   * Update property queueNameProperty from configType of cluster to first of validLeafQueues
+   * @param cluster cluster to operate with
+   * @param validLeafQueues Set of YARN capacity-scheduler leaf queues
+   * @param queueNameProperty queue name property to check and update
+   * @param configType config type name
+   * @throws AmbariException if an error occurs while updating the configurations
+   */
+  protected void updateQueueName(Cluster cluster, Set<String> validLeafQueues, String queueNameProperty, String configType) throws AmbariException {
+    String recommendQueue = validLeafQueues.iterator().next();
+    LOG.info("Update " + queueNameProperty + " in " + configType + " set to " + recommendQueue);
+    Map<String, String> updates = Collections.singletonMap(queueNameProperty, recommendQueue);
+    updateConfigurationPropertiesForCluster(cluster, configType, updates, true, true);
+  }
+
+  /**
+   * Pars Capacity Scheduler Properties and get all YARN Capacity Scheduler leaf queue names
+   * @param capacitySchedulerMap capacity-scheduler properties map
+   * @return all YARN Capacity Scheduler leaf queue names
+   */
+  protected Set<String> getCapacitySchedulerLeafQueues(Map<String, String> capacitySchedulerMap) {
+    Set<String> leafQueues= new HashSet<>();
+    Stack<String> toProcessQueues = new Stack<>();
+    if (capacitySchedulerMap.containsKey(YARN_SCHEDULER_CAPACITY_ROOT_QUEUES)){
+      StringTokenizer queueTokenizer = new StringTokenizer(capacitySchedulerMap.get(
+          YARN_SCHEDULER_CAPACITY_ROOT_QUEUES), ",");
+      while (queueTokenizer.hasMoreTokens()){
+        toProcessQueues.push(queueTokenizer.nextToken());
+      }
+    }
+    while (!toProcessQueues.empty()){
+      String queue = toProcessQueues.pop();
+      String queueKey = YARN_SCHEDULER_CAPACITY_ROOT_QUEUE + "." + queue + "." + QUEUES;
+      if (capacitySchedulerMap.containsKey(queueKey)){
+        StringTokenizer queueTokenizer = new StringTokenizer(capacitySchedulerMap.get(queueKey), ",");
+        while (queueTokenizer.hasMoreTokens()){
+          toProcessQueues.push(queue + "." + queueTokenizer.nextToken());
+        }
+      } else {
+        if (!queue.endsWith(".")){
+          String queueName = queue.substring(queue.lastIndexOf('.')+1);
+          leafQueues.add(queueName);
+        } else {
+          LOG.warn("Queue " + queue + " is not valid");
+        }
+      }
+    }
+    return leafQueues;
+  }
+
 }

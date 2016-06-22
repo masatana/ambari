@@ -20,12 +20,14 @@ limitations under the License.
 
 __all__ = ["select", "create", "get_hadoop_conf_dir", "get_hadoop_dir", "get_package_dirs"]
 
+# Python Imports
 import copy
 import os
-import version
-import stack_select
 import subprocess
 
+# Local Imports
+import version
+import stack_select
 from resource_management.core import shell
 from resource_management.libraries.functions.format import format
 from resource_management.libraries.script.script import Script
@@ -95,6 +97,12 @@ _PACKAGE_DIRS = {
     {
       "conf_dir": "/etc/mahout/conf",
       "current_dir": "{0}/current/mahout-client/conf".format(STACK_ROOT_PATTERN)
+    }
+  ],
+  "nifi": [
+    {
+      "conf_dir": "/etc/nifi/conf",
+      "current_dir": "{0}/current/nifi/conf".format(STACK_ROOT_PATTERN)
     }
   ],
   "oozie": [

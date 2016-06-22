@@ -20,10 +20,12 @@
 package org.apache.ambari.logsearch.solr;
 
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
+import org.apache.solr.client.solrj.impl.HttpClientUtil;
+import org.apache.solr.client.solrj.impl.Krb5HttpClientConfigurer;
 import org.apache.solr.common.cloud.SolrZkClient;
 
 public class AmbariSolrCloudClientBuilder {
-  String zookeeperHosts;
+  String zkConnectString;
   String collection;
   String configSet;
   String configDir;
@@ -37,13 +39,14 @@ public class AmbariSolrCloudClientBuilder {
   CloudSolrClient solrCloudClient;
   SolrZkClient solrZkClient;
   boolean splitting;
+  String jaasFile;
 
   public AmbariSolrCloudClient build() {
     return new AmbariSolrCloudClient(this);
   }
 
-  public AmbariSolrCloudClientBuilder withZookeeperHosts(String zookeeperHosts) {
-    this.zookeeperHosts = zookeeperHosts;
+  public AmbariSolrCloudClientBuilder withZkConnectString(String zkConnectString) {
+    this.zkConnectString = zkConnectString;
     return this;
   }
 
@@ -102,13 +105,26 @@ public class AmbariSolrCloudClientBuilder {
     return this;
   }
 
+  public AmbariSolrCloudClientBuilder withJaasFile(String jaasFile) {
+    this.jaasFile = jaasFile;
+    setupSecurity(jaasFile);
+    return this;
+  }
+
   public AmbariSolrCloudClientBuilder withSolrCloudClient() {
-    this.solrCloudClient = new CloudSolrClient(this.zookeeperHosts);
+    this.solrCloudClient = new CloudSolrClient(this.zkConnectString);
     return this;
   }
 
   public AmbariSolrCloudClientBuilder withSolrZkClient(int zkClientTimeout, int zkClientConnectTimeout) {
-    this.solrZkClient = new SolrZkClient(this.zookeeperHosts, zkClientTimeout, zkClientConnectTimeout);
+    this.solrZkClient = new SolrZkClient(this.zkConnectString, zkClientTimeout, zkClientConnectTimeout);
     return this;
+  }
+
+  private void setupSecurity(String jaasFile) {
+    if (jaasFile != null) {
+      System.setProperty("java.security.auth.login.config", jaasFile);
+      HttpClientUtil.setConfigurer(new Krb5HttpClientConfigurer());
+    }
   }
 }

@@ -87,6 +87,12 @@ def setup_logsearch():
        group=params.user_group
        )
 
+  if params.security_enabled:
+    File(format("{logsearch_jaas_file}"),
+         content=Template("logsearch_jaas.conf.j2"),
+         owner=params.logsearch_user
+         )
+
   random_num = random.random()
 
   upload_conf_set(format('{logsearch_solr_collection_service_logs}'), random_num)
@@ -111,4 +117,5 @@ def upload_conf_set(config_set, random_num):
     config_set=config_set,
     tmp_config_set_dir=tmp_config_set_folder,
     java64_home=params.java64_home,
-    user=params.logsearch_solr_user)
+    user=params.logsearch_solr_user,
+    retry=30, interval=5)

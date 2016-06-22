@@ -218,57 +218,16 @@ class TestHDP206StackAdvisor(TestCase):
     ]
     services = self.prepareServices(servicesInfo)
     services["configurations"] = {"yarn-env":{"properties":{"service_check.queue.name": "default"}},
-                                  "capacity-scheduler":{"properties":{"capacity-scheduler":
-                                                                        "yarn.scheduler.capacity.ndfqueue.minimum-user-limit-percent=100\n" +
-                                                                        "yarn.scheduler.capacity.maximum-am-resource-percent=0.2\n" +
-                                                                        "yarn.scheduler.capacity.maximum-applications=10000\n" +
-                                                                        "yarn.scheduler.capacity.node-locality-delay=40\n" +
-                                                                        "yarn.scheduler.capacity.root.accessible-node-labels=*\n" +
-                                                                        "yarn.scheduler.capacity.root.acl_administer_queue=*\n" +
-                                                                        "yarn.scheduler.capacity.root.capacity=100\n" +
-                                                                        "yarn.scheduler.capacity.root.ndfqueue.acl_administer_jobs=*\n" +
-                                                                        "yarn.scheduler.capacity.root.ndfqueue.acl_submit_applications=*\n" +
-                                                                        "yarn.scheduler.capacity.root.ndfqueue.capacity=100\n" +
-                                                                        "yarn.scheduler.capacity.root.ndfqueue.maximum-capacity=100\n" +
-                                                                        "yarn.scheduler.capacity.root.ndfqueue.state=RUNNING\n" +
-                                                                        "yarn.scheduler.capacity.root.ndfqueue.user-limit-factor=1\n" +
-                                                                        "yarn.scheduler.capacity.root.queues=ndfqueue\n"}}}
+                                  "capacity-scheduler":{"properties":{"capacity-scheduler": "yarn.scheduler.capacity.root.queues=ndfqueue\n"}}}
     hosts = self.prepareHosts([])
     result = self.stackAdvisor.validateConfigurations(services, hosts)
-
     expectedItems = [
-      {'message': 'service_check.queue.name is not exist, or not corresponds to existing leaf queue', 'level': 'ERROR'}
+      {'message': 'Queue is not exist, or not corresponds to existing YARN leaf queue', 'level': 'ERROR'}
     ]
     self.assertValidationResult(expectedItems, result)
-
-  def test_validationYARNServicecheckQueueNameDefault(self):
-    servicesInfo = [
-      {
-        "name": "YARN",
-        "components": []
-      }
-    ]
-    services = self.prepareServices(servicesInfo)
-    services["configurations"] = {"yarn-env":{"properties":{"service_check.queue.name": "default"}},
-                                  "capacity-scheduler":{"properties":{"capacity-scheduler":
-                                                                        "yarn.scheduler.capacity.default.minimum-user-limit-percent=100\n" +
-                                                                        "yarn.scheduler.capacity.maximum-am-resource-percent=0.2\n" +
-                                                                        "yarn.scheduler.capacity.maximum-applications=10000\n" +
-                                                                        "yarn.scheduler.capacity.node-locality-delay=40\n" +
-                                                                        "yarn.scheduler.capacity.root.accessible-node-labels=*\n" +
-                                                                        "yarn.scheduler.capacity.root.acl_administer_queue=*\n" +
-                                                                        "yarn.scheduler.capacity.root.capacity=100\n" +
-                                                                        "yarn.scheduler.capacity.root.default.acl_administer_jobs=*\n" +
-                                                                        "yarn.scheduler.capacity.root.default.acl_submit_applications=*\n" +
-                                                                        "yarn.scheduler.capacity.root.default.capacity=100\n" +
-                                                                        "yarn.scheduler.capacity.root.default.maximum-capacity=100\n" +
-                                                                        "yarn.scheduler.capacity.root.default.state=RUNNING\n" +
-                                                                        "yarn.scheduler.capacity.root.default.user-limit-factor=1\n" +
-                                                                        "yarn.scheduler.capacity.root.queues=default\n"}}}
-    hosts = self.prepareHosts([])
+    services["configurations"]["yarn-env"]["properties"]["service_check.queue.name"] = "ndfqueue"
+    expectedItems = []
     result = self.stackAdvisor.validateConfigurations(services, hosts)
-
-    expectedItems = [ ]
     self.assertValidationResult(expectedItems, result)
 
   def test_validationMinMax(self):
@@ -581,7 +540,8 @@ class TestHDP206StackAdvisor(TestCase):
     expected = {
       "yarn-env": {
         "properties": {
-          "min_user_id": "500"
+          "min_user_id": "500",
+          'service_check.queue.name': 'default'
         }
       },
       "yarn-site": {
@@ -607,6 +567,7 @@ class TestHDP206StackAdvisor(TestCase):
     expected = {
       "mapred-site": {
         "properties": {
+          'mapreduce.job.queuename': 'default',
           "yarn.app.mapreduce.am.resource.mb": "123",
           "yarn.app.mapreduce.am.command-opts": "-Xmx99m",
           "mapreduce.map.memory.mb": "567",
@@ -1121,13 +1082,14 @@ class TestHDP206StackAdvisor(TestCase):
     clusterData = {
       "totalAvailableRam": 2048
     }
+    ambariHostName = socket.getfqdn()
     expected = {'oozie-env':
                   {'properties':
                      {'oozie_user': 'oozie'}},
                 'core-site':
                   {'properties':
                      {'hadoop.proxyuser.ambari_user.groups': '*',
-                      'hadoop.proxyuser.ambari_user.hosts': '*',
+                      'hadoop.proxyuser.ambari_user.hosts': ambariHostName,
                       'hadoop.proxyuser.oozie.groups': '*',
                       'hadoop.proxyuser.hive.groups': '*',
                       'hadoop.proxyuser.webhcat.hosts': 'c6401.ambari.apache.org,c6402.ambari.apache.org',
@@ -1174,7 +1136,7 @@ class TestHDP206StackAdvisor(TestCase):
                      {'oozie_user': 'oozie'}},
                 'core-site': {'properties':
                                 {'hadoop.proxyuser.ambari_user.groups': '*',
-                                 'hadoop.proxyuser.ambari_user.hosts': '*',
+                                 'hadoop.proxyuser.ambari_user.hosts': ambariHostName,
                                  'hadoop.proxyuser.oozie.groups': '*',
                                  'hadoop.proxyuser.hive.groups': '*',
                                  'hadoop.proxyuser.hdfs1.groups': '*',

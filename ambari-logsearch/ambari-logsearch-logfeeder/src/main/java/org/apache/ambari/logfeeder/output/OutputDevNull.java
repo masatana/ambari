@@ -18,6 +18,8 @@
  */
 package org.apache.ambari.logfeeder.output;
 
+import java.io.File;
+
 import org.apache.ambari.logfeeder.input.InputMarker;
 import org.apache.log4j.Logger;
 
@@ -30,8 +32,14 @@ public class OutputDevNull extends Output {
   private static Logger logger = Logger.getLogger(OutputDevNull.class);
 
   @Override
-  public void write(String block, InputMarker inputMarker) throws Exception {
+  public void write(String block, InputMarker inputMarker){
     // just ignore the logs
     logger.trace("Ignore log block: " + block);
+  }
+
+  @Override
+  public void copyFile(File inputFile, InputMarker inputMarker) {
+    throw new UnsupportedOperationException(
+        "copyFile method is not yet supported for output=dev_null");
   }
 }

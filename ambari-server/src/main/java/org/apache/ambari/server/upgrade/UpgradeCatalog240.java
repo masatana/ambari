@@ -18,6 +18,10 @@
 
 package org.apache.ambari.server.upgrade;
 
+import javax.persistence.EntityManager;
+import javax.persistence.Query;
+import javax.persistence.TypedQuery;
+
 import java.io.File;
 import java.io.FileReader;
 import java.lang.reflect.Type;
@@ -111,10 +115,6 @@ import com.google.inject.Inject;
 import com.google.inject.Injector;
 import com.google.inject.persist.Transactional;
 
-import javax.persistence.EntityManager;
-import javax.persistence.Query;
-import javax.persistence.TypedQuery;
-
 /**
  * Upgrade catalog for version 2.4.0.
  */
@@ -144,6 +144,10 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
   protected static final String CLUSTER_TABLE = "clusters";
   protected static final String CLUSTER_UPGRADE_ID_COLUMN = "upgrade_id";
   protected static final String YARN_ENV_CONFIG = "yarn-env";
+  protected static final String CAPACITY_SCHEDULER_CONFIG = "capacity-scheduler";
+  protected static final String WEBHCAT_SITE_CONFIG = "webhcat-site";
+  protected static final String TEZ_SITE_CONFIG = "tez-site";
+  protected static final String MAPRED_SITE_CONFIG = "mapred-site";
   public static final String DESIRED_VERSION_COLUMN_NAME = "desired_version";
   public static final String BLUEPRINT_SETTING_TABLE = "blueprint_setting";
   public static final String BLUEPRINT_NAME_COL = "blueprint_name";
@@ -160,9 +164,11 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
   protected static final String HOST_VERSION_TABLE = "host_version";
   protected static final String PHOENIX_QUERY_SERVER_PRINCIPAL_KEY = "phoenix.queryserver.kerberos.principal";
   protected static final String PHOENIX_QUERY_SERVER_KEYTAB_KEY = "phoenix.queryserver.keytab.file";
-
+  protected static final String DEFAULT_CONFIG_VERSION = "version1";
+  protected static final String SLIDER_SERVICE_NAME = "SLIDER";
 
   private static final String OOZIE_ENV_CONFIG = "oozie-env";
+  private static final String SLIDER_CLIENT_CONFIG = "slider-client";
   private static final String HIVE_ENV_CONFIG = "hive-env";
   private static final String AMS_SITE = "ams-site";
   public static final String TIMELINE_METRICS_SINK_COLLECTION_PERIOD = "timeline.metrics.sink.collection.period";
@@ -174,8 +180,16 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
   protected static final String HBASE_SITE_CONFIG = "hbase-site";
   protected static final String HBASE_SPNEGO_PRINCIPAL_KEY = "hbase.security.authentication.spnego.kerberos.principal";
   protected static final String HBASE_SPNEGO_KEYTAB_KEY = "hbase.security.authentication.spnego.kerberos.keytab";
+  protected static final String EXTENSION_TABLE = "extension";
+  protected static final String EXTENSION_ID_COLUMN = "extension_id";
+  protected static final String EXTENSION_LINK_TABLE = "extensionlink";
+  protected static final String EXTENSION_LINK_ID_COLUMN = "link_id";
 
   private static final Map<String, Integer> ROLE_ORDER;
+  public static final String WEBHCAT_SITE_QUEUE_NAME = "templeton.hadoop.queue.name";
+  public static final String TEZ_SITE_QUEUE_NAME = "tez.queue.name";
+  public static final String YARN_ENV_QUEUE_NAME = "service_check.queue.name";
+  public static final String MAPRED_SITE_QUEUE_NAME = "mapreduce.job.queuename";
 
   static {
     // Manually create role order since there really isn't any mechanism for this
@@ -265,6 +279,8 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
   protected void executeDDLUpdates() throws AmbariException, SQLException {
     updateAdminPermissionTable();
     updateServiceComponentDesiredStateTable();
+    createExtensionTable();
+    createExtensionLinkTable();
     createSettingTable();
     updateRepoVersionTableDDL();
     updateServiceComponentDesiredStateTableDDL();
@@ -292,7 +308,7 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
     columns.add(new DBColumnInfo("username", String.class, 255, null, false));
     columns.add(new DBColumnInfo("password", String.class, 255, null, false));
     dbAccessor.createTable(REMOTE_AMBARI_CLUSTER_TABLE, columns, CLUSTER_ID);
-    dbAccessor.addUniqueConstraint(REMOTE_AMBARI_CLUSTER_TABLE , "unq_remote_ambari_cluster" , CLUSTER_NAME);
+    dbAccessor.addUniqueConstraint(REMOTE_AMBARI_CLUSTER_TABLE , "UQ_remote_ambari_cluster" , CLUSTER_NAME);
     addSequence("remote_cluster_id_seq", 1L, false);
 
     List<DBColumnInfo> remoteClusterServiceColumns = new ArrayList<>();
@@ -367,6 +383,7 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
     updateSparkConfigs();
     updateHBaseConfigs();
     updateFalconConfigs();
+    updateQueueNameConfigs();
     updateKerberosDescriptorArtifacts();
     removeHiveOozieDBConnectionConfigs();
     updateClustersAndHostsVersionStateTableDML();
@@ -380,6 +397,7 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
     fixAuthorizationDescriptions();
     removeAuthorizations();
     addConnectionTimeoutParamForWebAndMetricAlerts();
+    addSliderClientConfig();
   }
 
   protected void updateClusterInheritedPermissionsConfig() throws SQLException {
@@ -463,6 +481,48 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
         LOG.error("Error --> can be ignored.", e);
       }
     }
+  }
+
+  private void createExtensionTable() throws SQLException {
+    List<DBColumnInfo> columns = new ArrayList<>();
+
+    // Add extension table
+    LOG.info("Creating " + EXTENSION_TABLE + " table");
+
+    columns.add(new DBColumnInfo(EXTENSION_ID_COLUMN, Long.class, null, null, false));
+    columns.add(new DBColumnInfo("extension_name", String.class, 255, null, false));
+    columns.add(new DBColumnInfo("extension_version", String.class, 255, null, false));
+    dbAccessor.createTable(EXTENSION_TABLE, columns, EXTENSION_ID_COLUMN);
+
+    // create UNIQUE constraint, ensuring column order matches SQL files
+    String[] uniqueColumns = new String[] { "extension_name", "extension_version" };
+    dbAccessor.addUniqueConstraint(EXTENSION_TABLE, "UQ_extension", uniqueColumns);
+
+    addSequence("extension_id_seq", 0L, false);
+  }
+
+  private void createExtensionLinkTable() throws SQLException {
+    List<DBColumnInfo> columns = new ArrayList<>();
+
+    // Add extension link table
+    LOG.info("Creating " + EXTENSION_LINK_TABLE + " table");
+
+    columns.add(new DBColumnInfo(EXTENSION_LINK_ID_COLUMN, Long.class, null, null, false));
+    columns.add(new DBColumnInfo("stack_id", Long.class, null, null, false));
+    columns.add(new DBColumnInfo(EXTENSION_ID_COLUMN, Long.class, null, null, false));
+    dbAccessor.createTable(EXTENSION_LINK_TABLE, columns, EXTENSION_LINK_ID_COLUMN);
+
+    // create UNIQUE constraint, ensuring column order matches SQL files
+    String[] uniqueColumns = new String[] { "stack_id", EXTENSION_ID_COLUMN };
+    dbAccessor.addUniqueConstraint(EXTENSION_LINK_TABLE, "UQ_extension_link", uniqueColumns);
+
+    dbAccessor.addFKConstraint(EXTENSION_LINK_TABLE, "FK_extensionlink_extension_id",
+      EXTENSION_ID_COLUMN, EXTENSION_TABLE, EXTENSION_ID_COLUMN, false);
+
+    dbAccessor.addFKConstraint(EXTENSION_LINK_TABLE, "FK_extensionlink_stack_id",
+      "stack_id", STACK_TABLE, "stack_id", false);
+
+    addSequence("link_id_seq", 0L, false);
   }
 
   private void createSettingTable() throws SQLException {
@@ -549,6 +609,24 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
         if (hiveEnvProperties.containsKey("hive_hostname")) {
           LOG.info("Removing property hive_hostname from " + HIVE_ENV_CONFIG);
           removeConfigurationPropertiesFromCluster(cluster, HIVE_ENV_CONFIG, Collections.singleton("hive_hostname"));
+        }
+      }
+    }
+  }
+
+  protected void addSliderClientConfig() throws AmbariException {
+    AmbariManagementController ambariManagementController = injector.getInstance(AmbariManagementController.class);
+    Clusters clusters = ambariManagementController.getClusters();
+    ConfigHelper configHelper = ambariManagementController.getConfigHelper();
+    Map<String, Cluster> clusterMap = getCheckedClusterMap(clusters);
+
+    for (final Cluster cluster : clusterMap.values()) {
+      Set<String> installedServices = cluster.getServices().keySet();
+      if (installedServices.contains(SLIDER_SERVICE_NAME)) {
+        Config sliderClientConfig = cluster.getDesiredConfigByType(SLIDER_CLIENT_CONFIG);
+        if (sliderClientConfig == null) {
+          configHelper.createConfigType(cluster, ambariManagementController, SLIDER_CLIENT_CONFIG,
+                  new HashMap<String, String>(), AUTHENTICATED_USER_NAME, "");
         }
       }
     }
@@ -1429,7 +1507,7 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
 
     // create UNIQUE constraint, ensuring column order matches SQL files
     String[] uniqueColumns = new String[] { "component_name", "service_name", "cluster_id" };
-    dbAccessor.addUniqueConstraint(SERVICE_COMPONENT_DS_TABLE, "unq_scdesiredstate_name",
+    dbAccessor.addUniqueConstraint(SERVICE_COMPONENT_DS_TABLE, "UQ_scdesiredstate_name",
         uniqueColumns);
 
     // add FKs back to SCDS in both HCDS and HCS tables
@@ -1896,6 +1974,49 @@ public class UpgradeCatalog240 extends AbstractUpgradeCatalog {
         if (falconEnvEnvProperties.containsKey("falcon_store_uri")) {
           LOG.info("Removing property falcon_store_uri from falcon-env");
           removeConfigurationPropertiesFromCluster(cluster, "falcon-env", Collections.singleton("falcon_store_uri"));
+        }
+      }
+    }
+  }
+
+  /**
+   * Updates the YARN Capacity Scheduler related configurations for the clusters managed by this Ambari
+   * Update services configuration to set proper leaf queue name for services
+   * update mapred-site, webhcat-site, tez-site, yarn-env
+   *
+   * @throws AmbariException if an error occurs while updating the configurations
+   */
+  protected void updateQueueNameConfigs() throws AmbariException {
+    AmbariManagementController ambariManagementController = injector.getInstance(AmbariManagementController.class);
+    Clusters clusters = ambariManagementController.getClusters();
+    Map<String, Cluster> clusterMap = getCheckedClusterMap(clusters);
+
+    for (final Cluster cluster : clusterMap.values()) {
+      Config capacityScheduler = cluster.getDesiredConfigByType(CAPACITY_SCHEDULER_CONFIG);
+      if (capacityScheduler != null) {
+        Map<String, String> capacitySchedulerProperties = capacityScheduler.getProperties();
+        Set<String> leafQueues;
+        leafQueues = getCapacitySchedulerLeafQueues(capacitySchedulerProperties);
+        Set<String> installedServices = cluster.getServices().keySet();
+        if (leafQueues ==null || leafQueues.isEmpty()) {
+          LOG.warn("There is no leafQueues in capacity-scheduler");
+          return;
+        }
+        if (installedServices.contains(cluster.getServiceByConfigType(WEBHCAT_SITE_CONFIG)) &&
+            !isQueueNameValid(cluster, leafQueues, WEBHCAT_SITE_QUEUE_NAME, WEBHCAT_SITE_CONFIG)){
+          updateQueueName(cluster, leafQueues, WEBHCAT_SITE_QUEUE_NAME, WEBHCAT_SITE_CONFIG);
+        }
+        if (installedServices.contains(cluster.getServiceByConfigType(TEZ_SITE_CONFIG)) &&
+            !isQueueNameValid(cluster, leafQueues, TEZ_SITE_QUEUE_NAME, TEZ_SITE_CONFIG)){
+          updateQueueName(cluster, leafQueues, TEZ_SITE_QUEUE_NAME, TEZ_SITE_CONFIG);
+        }
+        if (installedServices.contains(cluster.getServiceByConfigType(YARN_ENV_CONFIG)) &&
+            !isQueueNameValid(cluster, leafQueues, YARN_ENV_QUEUE_NAME, YARN_ENV_CONFIG)){
+          updateQueueName(cluster, leafQueues, YARN_ENV_QUEUE_NAME, YARN_ENV_CONFIG);
+        }
+        if (installedServices.contains(cluster.getServiceByConfigType(MAPRED_SITE_CONFIG)) &&
+            !isQueueNameValid(cluster, leafQueues, MAPRED_SITE_QUEUE_NAME, MAPRED_SITE_CONFIG)){
+          updateQueueName(cluster, leafQueues, MAPRED_SITE_QUEUE_NAME, MAPRED_SITE_CONFIG);
         }
       }
     }

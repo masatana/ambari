@@ -136,11 +136,13 @@ def upload_conf_set(config_set, random_num):
       config_set=config_set,
       tmp_config_set_dir=tmp_config_set_folder,
       java64_home=params.java64_home,
-      user=params.metadata_user)
+      user=params.metadata_user,
+      retry=30, interval=5)
 
 def create_collection(collection, config_set):
   import params
 
+  jaasFile=params.atlas_jaas_file if params.security_enabled else None
   solr_cloud_util.create_collection(
       zookeeper_quorum=params.zookeeper_quorum,
       solr_znode=params.logsearch_solr_znode,
@@ -148,5 +150,6 @@ def create_collection(collection, config_set):
       config_set=config_set,
       java64_home=params.java64_home,
       user=params.metadata_user,
+      jaas_file=jaasFile,
       shards=params.atlas_solr_shards,
       replication_factor = params.logsearch_solr_replication_factor)

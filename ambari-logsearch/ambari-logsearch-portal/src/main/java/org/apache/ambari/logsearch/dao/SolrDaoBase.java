@@ -41,7 +41,9 @@ import org.apache.solr.client.solrj.SolrRequest;
 import org.apache.solr.client.solrj.SolrRequest.METHOD;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
+import org.apache.solr.client.solrj.impl.HttpClientUtil;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import org.apache.solr.client.solrj.impl.Krb5HttpClientConfigurer;
 import org.apache.solr.client.solrj.request.CollectionAdminRequest;
 import org.apache.solr.client.solrj.request.schema.SchemaRequest;
 import org.apache.solr.client.solrj.response.CollectionAdminResponse;
@@ -91,17 +93,17 @@ public abstract class SolrDaoBase {
 
   int SETUP_RETRY_SECOND = 30;
   
-  private boolean isZkhost=false;//by default its false
+  private boolean isZkConnectString=false;//by default its false
   
   //set logtype
   public SolrDaoBase(LOG_TYPE logType) {
     this.logType = logType;
   }
 
-  public SolrClient connectToSolr(String url, String zkHosts,
+  public SolrClient connectToSolr(String url, String zkConnectString,
                                   String collection) throws Exception {
     this.collectionName = collection;
-    solrDetail = "zkHosts=" + zkHosts + ", collection=" + collection
+    solrDetail = "zkConnectString=" + zkConnectString + ", collection=" + collection
       + ", url=" + url;
 
     logger.info("connectToSolr() " + solrDetail);
@@ -109,19 +111,20 @@ public abstract class SolrDaoBase {
       throw new Exception("For solr, collection name is mandatory. "
         + solrDetail);
     }
-    if (!stringUtil.isEmpty(zkHosts)) {
-      isZkhost=true;
-      solrDetail = "zkHosts=" + zkHosts + ", collection=" + collection;
+    setupSecurity();
+    if (!stringUtil.isEmpty(zkConnectString)) {
+      isZkConnectString=true;
+      solrDetail = "zkConnectString=" + zkConnectString + ", collection=" + collection;
       logger.info("Using zookeepr. " + solrDetail);
-      solrClouldClient = new CloudSolrClient(zkHosts);
+      solrClouldClient = new CloudSolrClient(zkConnectString);
       solrClouldClient.setDefaultCollection(collection);
       solrClient = solrClouldClient;
       int waitDurationMS = 3 * 60 * 1000;
       checkSolrStatus(waitDurationMS);
     } else {
       if (stringUtil.isEmpty(url)) {
-        throw new Exception("Both zkHosts and URL are empty. zkHosts="
-          + zkHosts + ", collection=" + collection + ", url="
+        throw new Exception("Both zkConnectString and URL are empty. zkConnectString="
+          + zkConnectString + ", collection=" + collection + ", url="
           + url);
       }
       solrDetail = "collection=" + collection + ", url=" + url;
@@ -189,7 +192,7 @@ public abstract class SolrDaoBase {
 
   public void setupCollections(final String splitMode, final String configName,
       final int numberOfShards, final int replicationFactor) throws Exception {
-    if (isZkhost) {
+    if (isZkConnectString) {
       setup_status = createCollectionsIfNeeded(splitMode, configName,
           numberOfShards, replicationFactor);
       logger.info("Setup status for " + collectionName + " is " + setup_status);
@@ -204,7 +207,7 @@ public abstract class SolrDaoBase {
             int retryCount = 0;
             while (true) {
               try {
-                Thread.sleep(SETUP_RETRY_SECOND);
+                Thread.sleep(SETUP_RETRY_SECOND * 1000);
                 retryCount++;
                 setup_status = createCollectionsIfNeeded(splitMode, configName,
                     numberOfShards, replicationFactor);
@@ -480,6 +483,16 @@ public abstract class SolrDaoBase {
       + " Total Time Elapsed is :- "
       + updateResoponse.getElapsedTime());
     return updateResoponse;
+  }
+
+  private void setupSecurity() {
+    String jaasFile = PropertiesUtil.getProperty("logsearch.solr.jaas.file", "/etc/security/keytabs/logsearch_solr.service.keytab");
+    boolean securityEnabled = PropertiesUtil.getBooleanProperty("logsearch.solr.kerberos.enable", false);
+    if (securityEnabled) {
+      System.setProperty("java.security.auth.login.config", jaasFile);
+      HttpClientUtil.setConfigurer(new Krb5HttpClientConfigurer());
+      logger.info("setupSecurity() called for kerberos configuration, jaas file: " + jaasFile);
+    }
   }
 
   private void populateSchemaFields() {

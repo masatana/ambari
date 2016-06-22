@@ -19,6 +19,7 @@
 
 package org.apache.ambari.logfeeder.output;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
@@ -34,13 +35,16 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.ambari.logfeeder.LogFeederUtil;
 import org.apache.ambari.logfeeder.input.InputMarker;
+import org.apache.ambari.logfeeder.logconfig.FetchConfigFromSolr;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
+import org.apache.solr.client.solrj.impl.HttpClientUtil;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
+import org.apache.solr.client.solrj.impl.Krb5HttpClientConfigurer;
 import org.apache.solr.client.solrj.impl.LBHttpSolrClient;
 import org.apache.solr.client.solrj.response.SolrPingResponse;
 import org.apache.solr.client.solrj.response.UpdateResponse;
@@ -55,6 +59,8 @@ public class OutputSolr extends Output {
   private static final int DEFAULT_NUMBER_OF_SHARDS = 1;
   private static final int DEFAULT_SPLIT_INTERVAL = 30;
   private static final int DEFAULT_NUMBER_OF_WORKERS = 1;
+
+  private static final int RETRY_INTERVAL = 30;
 
   private String collection;
   private String splitMode;
@@ -73,11 +79,12 @@ public class OutputSolr extends Output {
   public void init() throws Exception {
     super.init();
     initParams();
+    setupSecurity();
     createOutgoingBuffer();
     createSolrWorkers();
   }
 
-  private void initParams() {
+  private void initParams() throws Exception {
     statMetric.metricsName = "output.solr.write_logs";
     writeBytesMetric.metricsName = "output.solr.write_bytes";
 
@@ -85,6 +92,8 @@ public class OutputSolr extends Output {
     if (!splitMode.equalsIgnoreCase("none")) {
       splitInterval = getIntValue("split_interval_mins", DEFAULT_SPLIT_INTERVAL);
     }
+    isComputeCurrentCollection = !splitMode.equalsIgnoreCase("none");
+    
     numberOfShards = getIntValue("number_of_shards", DEFAULT_NUMBER_OF_SHARDS);
 
     maxIntervalMS = getIntValue("idle_flush_time_ms", DEFAULT_MAX_INTERVAL_MS);
@@ -96,8 +105,24 @@ public class OutputSolr extends Output {
       maxBufferSize = 1;
     }
 
-    LOG.info(String.format("Config: Number of workers=%d, splitMode=%s, splitInterval=%d, " + "numberOfShards=%d. "
+    collection = getStringValue("collection");
+    if (StringUtils.isEmpty(collection)) {
+      throw new Exception("Collection property is mandatory");
+    }
+
+    LOG.info(String.format("Config: Number of workers=%d, splitMode=%s, splitInterval=%d, numberOfShards=%d. "
         + getShortDescription(), workers, splitMode, splitInterval, numberOfShards));
+  }
+
+
+  private void setupSecurity() {
+    String jaasFile = LogFeederUtil.getStringProperty("logfeeder.solr.jaas.file", "/etc/security/keytabs/logsearch_solr.service.keytab");
+    boolean securityEnabled = LogFeederUtil.getBooleanProperty("logfeeder.solr.kerberos.enable", false);
+    if (securityEnabled) {
+      System.setProperty("java.security.auth.login.config", jaasFile);
+      HttpClientUtil.setConfigurer(new Krb5HttpClientConfigurer());
+      LOG.info("setupSecurity() called for kerberos configuration, jaas file: " + jaasFile);
+    }
   }
 
   private void createOutgoingBuffer() {
@@ -108,42 +133,45 @@ public class OutputSolr extends Output {
 
   private void createSolrWorkers() throws Exception, MalformedURLException {
     String solrUrl = getStringValue("url");
-    String zkHosts = getStringValue("zk_hosts");
-    if (StringUtils.isEmpty(solrUrl) && StringUtils.isEmpty(zkHosts)) {
-      throw new Exception("For solr output, either url or zk_hosts property need to be set");
+    String zkConnectString = getStringValue("zk_connect_string");
+    if (StringUtils.isEmpty(solrUrl) && StringUtils.isEmpty(zkConnectString)) {
+      throw new Exception("For solr output, either url or zk_connect_string property need to be set");
     }
 
     for (int count = 0; count < workers; count++) {
-      SolrClient solrClient = getSolrClient(solrUrl, zkHosts, count);
+      SolrClient solrClient = getSolrClient(solrUrl, zkConnectString, count);
       createSolrWorkerThread(count, solrClient);
     }
   }
 
-  SolrClient getSolrClient(String solrUrl, String zkHosts, int count) throws Exception, MalformedURLException {
-    SolrClient solrClient = null;
-
-    if (zkHosts != null) {
-      solrClient = createCloudSolrClient(zkHosts);
-    } else {
-      solrClient = createHttpSolarClient(solrUrl);
-    }
-
-    pingSolr(solrUrl, zkHosts, count, solrClient);
+  SolrClient getSolrClient(String solrUrl, String zkConnectString, int count) throws Exception, MalformedURLException {
+    SolrClient solrClient = createSolrClient(solrUrl, zkConnectString);
+    pingSolr(solrUrl, zkConnectString, count, solrClient);
+    waitForConfig();
 
     return solrClient;
   }
 
-  private SolrClient createCloudSolrClient(String zkHosts) throws Exception {
-    LOG.info("Using zookeepr. zkHosts=" + zkHosts);
+  private SolrClient createSolrClient(String solrUrl, String zkConnectString) throws Exception, MalformedURLException {
+    SolrClient solrClient;
+    if (zkConnectString != null) {
+      solrClient = createCloudSolrClient(zkConnectString);
+    } else {
+      solrClient = createHttpSolarClient(solrUrl);
+    }
+    return solrClient;
+  }
+
+  private SolrClient createCloudSolrClient(String zkConnectString) throws Exception {
+    LOG.info("Using zookeepr. zkConnectString=" + zkConnectString);
     collection = getStringValue("collection");
     if (StringUtils.isEmpty(collection)) {
       throw new Exception("For solr cloud property collection is mandatory");
     }
     LOG.info("Using collection=" + collection);
 
-    CloudSolrClient solrClient = new CloudSolrClient(zkHosts);
+    CloudSolrClient solrClient = new CloudSolrClient(zkConnectString);
     solrClient.setDefaultCollection(collection);
-    isComputeCurrentCollection = !splitMode.equalsIgnoreCase("none");
     return solrClient;
   }
 
@@ -151,22 +179,22 @@ public class OutputSolr extends Output {
     String[] solrUrls = StringUtils.split(solrUrl, ",");
     if (solrUrls.length == 1) {
       LOG.info("Using SolrURL=" + solrUrl);
-      return new HttpSolrClient(solrUrl);
+      return new HttpSolrClient(solrUrl + "/" + collection);
     } else {
       LOG.info("Using load balance solr client. solrUrls=" + solrUrl);
-      LOG.info("Initial URL for LB solr=" + solrUrls[0]);
-      LBHttpSolrClient lbSolrClient = new LBHttpSolrClient(solrUrls[0]);
+      LOG.info("Initial URL for LB solr=" + solrUrls[0] + "/" + collection);
+      LBHttpSolrClient lbSolrClient = new LBHttpSolrClient(solrUrls[0] + "/" + collection);
       for (int i = 1; i < solrUrls.length; i++) {
-        LOG.info("Adding URL for LB solr=" + solrUrls[i]);
-        lbSolrClient.addSolrServer(solrUrls[i]);
+        LOG.info("Adding URL for LB solr=" + solrUrls[i] + "/" + collection);
+        lbSolrClient.addSolrServer(solrUrls[i] + "/" + collection);
       }
       return lbSolrClient;
     }
   }
 
-  private void pingSolr(String solrUrl, String zkHosts, int count, SolrClient solrClient) {
+  private void pingSolr(String solrUrl, String zkConnectString, int count, SolrClient solrClient) {
     try {
-      LOG.info("Pinging Solr server. zkHosts=" + zkHosts + ", urls=" + solrUrl);
+      LOG.info("Pinging Solr server. zkConnectString=" + zkConnectString + ", urls=" + solrUrl);
       SolrPingResponse response = solrClient.ping();
       if (response.getStatus() == 0) {
         LOG.info("Ping to Solr server is successful for worker=" + count);
@@ -174,13 +202,32 @@ public class OutputSolr extends Output {
         LOG.warn(
             String.format(
                 "Ping to Solr server failed. It would check again. worker=%d, "
-                    + "solrUrl=%s, zkHosts=%s, collection=%s, response=%s",
-                count, solrUrl, zkHosts, collection, response));
+                    + "solrUrl=%s, zkConnectString=%s, collection=%s, response=%s",
+                count, solrUrl, zkConnectString, collection, response));
       }
     } catch (Throwable t) {
       LOG.warn(String.format(
-          "Ping to Solr server failed. It would check again. worker=%d, " + "solrUrl=%s, zkHosts=%s, collection=%s",
-          count, solrUrl, zkHosts, collection), t);
+          "Ping to Solr server failed. It would check again. worker=%d, " + "solrUrl=%s, zkConnectString=%s, collection=%s",
+          count, solrUrl, zkConnectString, collection), t);
+    }
+  }
+
+  private void waitForConfig() throws SolrServerException, IOException {
+    if (!LogFeederUtil.getBooleanProperty("logfeeder.log.filter.enable", false)) {
+      return;
+    }
+    
+    while (true) {
+      LOG.info("Checking if config is available");
+      if (FetchConfigFromSolr.isFilterAvailable()) {
+        LOG.info("Config is available");
+        return;
+      }
+      try {
+        Thread.sleep(RETRY_INTERVAL * 1000);
+      } catch (InterruptedException e) {
+        LOG.error(e);
+      }
     }
   }
 
@@ -266,7 +313,6 @@ public class OutputSolr extends Output {
 
   class SolrWorkerThread extends Thread {
     private static final String ROUTER_FIELD = "_router_field_";
-    private static final int RETRY_INTERVAL = 30;
 
     private final SolrClient solrClient;
     private final Collection<SolrInputDocument> localBuffer = new ArrayList<>();
@@ -307,7 +353,10 @@ public class OutputSolr extends Output {
                   + getShortDescription());
               break;
             }
-            lastDispatchTime = currTimeMS;            
+          }
+          if( localBuffer.size() == 0 ) {
+            //If localBuffer is empty, then reset the timer
+            lastDispatchTime = currTimeMS;
           }
         } catch (InterruptedException e) {
           // Handle thread exiting
@@ -450,5 +499,18 @@ public class OutputSolr extends Output {
     public boolean isDone() {
       return localBuffer.isEmpty();
     }
+  }
+
+  @Override
+  public void write(String block, InputMarker inputMarker) throws Exception {
+    // TODO Auto-generated method stub
+    
+  }
+
+  @Override
+  public void copyFile(File inputFile, InputMarker inputMarker)
+      throws UnsupportedOperationException {
+    throw new UnsupportedOperationException(
+        "copyFile method is not yet supported for output=solr");     
   }
 }
