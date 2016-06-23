@@ -51,6 +51,7 @@ public class AlertDefinition {
   private String label = null;
   private String description = null;
   private String uuid = null;
+  private String socketCommand = null;
 
   @SerializedName("ignore_host")
   private boolean ignoreHost = false;
@@ -255,6 +256,24 @@ public class AlertDefinition {
    */
   public String getUuid() {
     return uuid;
+  }
+
+  /**
+   * Gets a command to send to the services via socket
+   *
+   * @return the command, or {@code null} for none
+   */
+  public String getSocketCommand() {
+    return socketCommand;
+  }
+
+  /**
+   * Sets a command to send to the services via socket
+   *
+   * @param socketCommand the command string
+   */
+  public void setSocketCommand(String socketCommand) {
+    this.socketCommand = socketCommand;
   }
 
   /**

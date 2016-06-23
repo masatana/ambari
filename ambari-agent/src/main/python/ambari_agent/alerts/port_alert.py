@@ -4,6 +4,7 @@
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
+
 regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
@@ -62,7 +63,7 @@ class PortAlert(BaseAlert):
         'value' in reporting[reporting_state_critical]:
         self.critical_timeout = reporting[reporting_state_critical]['value']
 
-    if 'socket_command' in alert_source_meta:
+    if 'socket_command' in alert_source_meta and alert_source_meta['socket_command'] != '':
       self.socket_command = alert_source_meta['socket_command']
 
     # check warning threshold for sanity

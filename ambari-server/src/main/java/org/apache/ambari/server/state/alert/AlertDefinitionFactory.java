@@ -256,6 +256,7 @@ public class AlertDefinitionFactory {
     entity.setScheduleInterval(definition.getInterval());
     entity.setHelpURL(definition.getHelpURL());
     entity.setServiceName(definition.getServiceName());
+    entity.setSocketCommand(definition.getSocketCommand());
 
     Scope scope = definition.getScope();
     if (null == scope) {

@@ -325,24 +325,18 @@ public class AlertDefinitionEntity {
   }
 
   /**
-   * Gets whether this alert definition will ignore the hosts reporting the
-   * alert and combine them all into a single alert entry.
+   * Gets a command to send to the services via socket
    *
-   * @return {@code true} if this alert definition is to ignore hosts and
-   * combine all alert instances into a single entry, {@code false}
-   * otherwise.
+   * @return the command, or {@code null} for none
    */
   public String getSocketCommand() {
     return socketCommand;
   }
 
   /**
-   * Sets whether this alert definition will ignore the hosts reporting the
-   * alert and combine them all into a single alert entry.
+   * Sets a command to send to the services via socket
    *
-   * @param ignoreHost {@code true} if this alert definition is to ignore hosts and
-   *                   combine all alert instances into a single entry, {@code false}
-   *                   otherwise.
+   * @param socketCommand the command string
    */
   public void setSocketCommand(String socketCommand) {
     this.socketCommand = socketCommand;
