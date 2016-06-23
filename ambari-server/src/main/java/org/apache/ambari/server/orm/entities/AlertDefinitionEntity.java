@@ -132,6 +132,9 @@ public class AlertDefinitionEntity {
   @Column(name = "ignore_host", nullable = false)
   private Integer ignoreHost = Integer.valueOf(0);
 
+  @Column(name = "socket_command", nullable = true, length = 255)
+  private String socketCommand;
+
   /**
    * Indicates how many sequential alerts must be received for a non-OK state
    * change to be considered correct. This value is meant to eliminate
@@ -329,6 +332,30 @@ public class AlertDefinitionEntity {
    * combine all alert instances into a single entry, {@code false}
    * otherwise.
    */
+  public String getSocketCommand() {
+    return socketCommand;
+  }
+
+  /**
+   * Sets whether this alert definition will ignore the hosts reporting the
+   * alert and combine them all into a single alert entry.
+   *
+   * @param ignoreHost {@code true} if this alert definition is to ignore hosts and
+   *                   combine all alert instances into a single entry, {@code false}
+   *                   otherwise.
+   */
+  public void setSocketCommand(String socketCommand) {
+    this.socketCommand = socketCommand;
+  }
+
+  /**
+   * Gets whether this alert definition will ignore the hosts reporting the
+   * alert and combine them all into a single alert entry.
+   *
+   * @return {@code true} if this alert definition is to ignore hosts and
+   * combine all alert instances into a single entry, {@code false}
+   * otherwise.
+   */
   public boolean isHostIgnored() {
     return ignoreHost == Integer.valueOf(0) ? false : true;
   }
@@ -344,6 +371,7 @@ public class AlertDefinitionEntity {
   public void setHostIgnored(boolean ignoreHost) {
     this.ignoreHost = ignoreHost ? Integer.valueOf(1) : Integer.valueOf(0);
   }
+
 
   /**
    * Gets the unique hash for the current state of this definition. If a

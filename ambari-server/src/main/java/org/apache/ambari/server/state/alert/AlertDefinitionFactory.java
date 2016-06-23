@@ -190,6 +190,7 @@ public class AlertDefinitionFactory {
     definition.setHelpURL(entity.getHelpURL());
     definition.setDescription(entity.getDescription());
     definition.setUuid(entity.getHash());
+    definition.setSocketCommand(entity.getSocketCommand());
 
     try{
       String sourceJson = entity.getSource();
