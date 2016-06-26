@@ -132,6 +132,9 @@ public class AlertDefinitionEntity {
   @Column(name = "ignore_host", nullable = false)
   private Integer ignoreHost = Integer.valueOf(0);
 
+  @Column(name ="socket_command", nullable = true, length = 255)
+  private String socketCommand;
+
   /**
    * Indicates how many sequential alerts must be received for a non-OK state
    * change to be considered correct. This value is meant to eliminate
@@ -543,6 +546,14 @@ public class AlertDefinitionEntity {
    */
   public void setRepeatToleranceEnabled(boolean enabled) {
     repeatToleranceEnabled = enabled ? Short.valueOf((short) 1) : 0;
+  }
+
+  public String getSocketCommand() {
+    return this.socketCommand;
+  }
+
+  public void setSocketCommand(String socketCommand) {
+    this.socketCommand = socketCommand;
   }
 
   /**

@@ -51,6 +51,7 @@ public class AlertDefinition {
   private String label = null;
   private String description = null;
   private String uuid = null;
+  private String socketCommand = null;
 
   @SerializedName("ignore_host")
   private boolean ignoreHost = false;
@@ -256,6 +257,8 @@ public class AlertDefinition {
   public String getUuid() {
     return uuid;
   }
+  public void setSocketCommand(String socketCommand) { this.socketCommand = socketCommand; }
+  public String getSocketCommand() {return this.socketCommand; }
 
   /**
    * Compares {@link #equals(Object)} of every field. This is used mainly for
