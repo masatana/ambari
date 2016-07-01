@@ -22,16 +22,59 @@ import constants from 'hive/utils/constants';
 
 
 export default Ember.Controller.extend({
-  isLocalUpload : Ember.computed.equal("uploadSource","local"),
-  uploadSource : "local",
-  hdfsPath : "",
+  DEFAULT_CSV_DELIMITER: ',',
+  DEFAULT_CSV_QUOTE: '"',
+  DEFAULT_CSV_ESCAPE: '\\',
+  NON_PRINTABLE_CHARS:[{"id":"0", "name":"NUL", "description":"(null)"},
+    {"id":"1", "name":"SOH", "description":"(start of heading)"},
+    {"id":"2", "name":"STX", "description":"(start of text)"},
+    {"id":"3", "name":"ETX", "description":"(end of text)"},
+    {"id":"4", "name":"EOT", "description":"(end of transmission)"},
+    {"id":"5", "name":"ENQ", "description":"(enquiry)"},
+    {"id":"6", "name":"ACK", "description":"(acknowledge)"},
+    {"id":"7", "name":"BEL", "description":"(bell)"},
+    {"id":"8", "name":"BS", "description":"(backspace)"},
+    {"id":"9", "name":"TAB", "description":"(horizontal tab)"},
+    {"id":"10", "name":"LF", "description":"(NL line feed - new line)"},
+    {"id":"11", "name":"VT", "description":"(vertical tab)"},
+    {"id":"12", "name":"FF", "description":"(NP form feed - new page)"},
+    {"id":"13", "name":"CR", "description":"(carriage return)"},
+    {"id":"14", "name":"SO", "description":"(shift out)"},
+    {"id":"15", "name":"SI", "description":"(shift in)"},
+    {"id":"16", "name":"DLE", "description":"(data link escape)"},
+    {"id":"17", "name":"DC1", "description":"(device control 1)"},
+    {"id":"18", "name":"DC2", "description":"(device control 2)"},
+    {"id":"19", "name":"DC3", "description":"(device control 3)"},
+    {"id":"20", "name":"DC4", "description":"(device control 4)"},
+    {"id":"21", "name":"NAK", "description":"(negative ackowledge)"},
+    {"id":"22", "name":"SYN", "description":"(synchronous idle)"},
+    {"id":"23", "name":"ETB", "description":"(end of trans. block)"},
+    {"id":"24", "name":"CAN", "description":"(cancel)"},
+    {"id":"25", "name":"EM", "description":"(end of medium)"},
+    {"id":"26", "name":"SUB", "description":"(substitute)"},
+    {"id":"27", "name":"ESC", "description":"(escape)"},
+    {"id":"28", "name":"FS", "description":"(file separator)"},
+    {"id":"29", "name":"GS", "description":"(group separator)"},
+    {"id":"30", "name":"RS", "description":"(record separator)"},
+    {"id":"31", "name":"US", "description":"(unit separator)"},
+    {"id":"32", "name":"Space", "description":""},
+    {"id":"127", "name":"DEL", "description":""}
+  ],
+  COLUMN_NAME_REGEX: "^[a-zA-Z]{1}[a-zA-Z0-9_]*$",
+  TABLE_NAME_REGEX: "^[a-zA-Z]{1}[a-zA-Z0-9_]*$",
+  HDFS_PATH_REGEX: "^[/]{1}.+",  // unix path allows everything but here we have to mention full path so starts with /
+  isLocalUpload: Ember.computed.equal("uploadSource", "local"),
+  uploadSource: "local",
+  COLUMN_NAME_PREFIX : "column",
+  hdfsPath: "",
   jobService: Ember.inject.service(constants.namingConventions.job),
   notifyService: Ember.inject.service(constants.namingConventions.notify),
-  needs: ['databases'],
+  databaseService : Ember.inject.service(constants.namingConventions.database),
+  databases : Ember.computed.alias("databaseService.databases"),
   showErrors: false,
   uploader: Uploader.create(),
   baseUrl: "/resources/upload",
-  isFirstRowHeader: true, // is first row  header
+  isFirstRowHeader: false, // is first row  header
   header: null,  // header received from server
   files: null, // files that need to be uploaded only file[0] is relevant
   firstRow: [], // the actual first row of the table.
@@ -41,33 +84,38 @@ export default Ember.Controller.extend({
   filePath: null,
   tableName: null,
   uploadProgressInfos : [],
-  onChangeUploadSource : function(){
-    this.clearFields();
-  }.observes("uploadSource"),
-  uploadProgressInfo : Ember.computed("uploadProgressInfos.[]",function(){
-    var info = "";
-    for( var i = 0 ; i < this.get('uploadProgressInfos').length ; i++)
-        info += this.get('uploadProgressInfos').objectAt(i);
-
-    return new Ember.Handlebars.SafeString(info);
-  }),
+  DEFAULT_DB_NAME : 'default',
+  showPreview : false,
+  containsEndlines: false,
   inputFileTypes :[
     {id : "CSV", name : "CSV"},
     {id : "JSON", name : "JSON"},
     {id : "XML", name : "XML"}
   ],
-  inputFileType : {id : "CSV", name : "CSV"},
+  inputFileType: null,
   inputFileTypeCSV : Ember.computed.equal('inputFileType.id',"CSV"),
+  storedAsTextFile : Ember.computed.equal("selectedFileType","TEXTFILE"),
+  storedAsNotTextFile : Ember.computed.not("storedAsTextFile"),
+  csvDelimiter: null,
+  csvQuote : null,
+  csvEscape : null,
+  asciiList:[],
+  fieldsTerminatedBy: null,
+  escapedBy: null,
   fileTypes:[
     "SEQUENCEFILE",
     "TEXTFILE"    ,
     "RCFILE"      ,
     "ORC"         ,
     "PARQUET"     ,
-    "AVRO"        ,
-    "INPUTFORMAT"
+    "AVRO"
   ],
-  selectedFileType: "ORC",
+  selectedFileType: null,
+  onChangeSelectedFileType: function(){
+    if(this.get('selectedFileType') === this.get('fileTypes')[1] && this.get('containsEndlines') === true){
+      this.set('containsEndlines', false);
+    }
+  }.observes("selectedFileType", "containsEndlines"),
   dataTypes: [
     "TINYINT", //
     "SMALLINT", //
@@ -84,21 +132,73 @@ export default Ember.Controller.extend({
     "VARCHAR", // -- (Note: Available in Hive 0.12.0 and later)
     "CHAR" // -- (Note: Available in Hive 0.13.0 and later)
   ],
+  setDefaultDB : function(){
+    var self = this;
+    var defaultDatabase = this.get('databases').find(
+      function(item,index){
+        if(item.id == self.DEFAULT_DB_NAME )
+          return true;
+      }
+    );
+
+    console.log("setting the initial database to : " + defaultDatabase);
+    self.set("selectedDatabase",defaultDatabase);
+  },
+  init: function () {
+    this.setDefaultDB();
+    this.fillAsciiList();
+    this.set("selectedFileType", this.get("fileTypes")[3]);
+    this.set("inputFileType", this.get("inputFileTypes")[0]);
+  },
+  onChangeUploadSource : function(){
+    this.clearFields();
+  }.observes("uploadSource"),
+  fillAsciiList: function(){
+    var list = this.get('asciiList');
+    list.push({"id": -1, "name": ""});
+    var nonPrintable = this.get('NON_PRINTABLE_CHARS');
+    for( var i = 0 ; i <= 127 ; i++ ){
+      var charInfo = nonPrintable.find(function(item){
+        return item.id == i;
+      });
+      if(!charInfo){
+        charInfo = {"id": i, "name": String.fromCodePoint(i), "description":"" };
+      }
+      var option = {"id": i, "name": charInfo.id + "    " + charInfo.name + charInfo.description};
+      list.push(option);
+      if(i === 44){
+        this.set("csvDelimiter", option);
+      }
+      else if(i === 34){
+        this.set("csvQuote", option);
+      }
+      else if(i === 92){
+        this.set("csvEscape", option);
+      }
+    }
+  },
+  uploadProgressInfo : Ember.computed("uploadProgressInfos.[]",function(){
+    var info = "";
+    for( var i = 0 ; i < this.get('uploadProgressInfos').length ; i++)
+      info += this.get('uploadProgressInfos').objectAt(i);
+
+    return new Ember.Handlebars.SafeString(info);
+  }),
+  _setHeaderElements : function(header,valueArray){
+    header.forEach(function (item, index) {
+      Ember.set(item, 'name',  valueArray[index]);
+    }, this);
+  },
   isFirstRowHeaderDidChange: function () {
-    console.log("inside onFirstRowHeader : isFirstRowHeader : " + this.get('isFirstRowHeader'));
     if (this.get('isFirstRowHeader') != null && typeof this.get('isFirstRowHeader') !== 'undefined') {
       if (this.get('isFirstRowHeader') == false) {
         if (this.get('rows')) {
           this.get('rows').unshiftObject({row: this.get('firstRow')});
+          this._setHeaderElements(this.get('header'),this.get('defaultColumnNames'));
         }
-      } else if( this.get('header') ) { // headers are available
+      } else if (this.get('header')) { // headers are available
         // take first row of
-        this.get('header').forEach(function (item, index) {
-          console.log("item : ", item);
-          console.log("this.get('firstRow').objectAt(index)  : ", this.get('firstRow').objectAt(index));
-          Ember.set(item, 'name', this.get('firstRow')[index]);
-        }, this);
-
+        this._setHeaderElements(this.get('header'),this.get('firstRow'));
         this.get('rows').removeAt(0);
       }
 
@@ -106,18 +206,15 @@ export default Ember.Controller.extend({
     }
   }.observes('isFirstRowHeader'),
 
-  popUploadProgressInfos : function(){
+  popUploadProgressInfos: function () {
     var msg = this.get('uploadProgressInfos').popObject();
-   // console.log("popedup message : " + msg);
   },
 
   pushUploadProgressInfos : function(info){
     this.get('uploadProgressInfos').pushObject(info);
-   // console.log("pushed message : " + info);
   },
 
   clearUploadProgressModal : function(){
-  //  console.log("inside clearUploadProgressModal this.get('uploadProgressInfos') : " + this.get('uploadProgressInfos'));
     var len = this.get('uploadProgressInfos').length;
     for( var i = 0 ; i < len ; i++){
       this.popUploadProgressInfos();
@@ -125,7 +222,6 @@ export default Ember.Controller.extend({
   },
 
   hideUploadModal : function(){
-    console.log("hiding the modal ....");
     this.clearUploadProgressModal();
     Ember.$("#uploadProgressModal").modal("hide");
   },
@@ -135,11 +231,13 @@ export default Ember.Controller.extend({
   },
 
   clearFields: function () {
+    this.set("showPreview",false);
     this.set("hdfsPath");
     this.set("header");
     this.set("rows");
+    this.set("escapedBy");
+    this.set("fieldsTerminatedBy");
     this.set("error");
-    this.set('isFirstRowHeader',true);
     this.set('files');
     this.set("firstRow");
     this.set("selectedDatabase",null);
@@ -147,24 +245,22 @@ export default Ember.Controller.extend({
     this.set("filePath");
     this.set('tableName');
     this.clearUploadProgressModal();
+    this.setDefaultDB();
     this.printValues();
   },
 
   printValues: function () {
-    console.log("printing all values : ");
-    console.log("header : ", this.get('header'));
-    console.log("rows : ", this.get('rows'));
-    console.log("error : ", this.get('error'));
-    console.log("isFirstRowHeader : ", this.get('isFirstRowHeader'));
-    console.log("files : ", this.get('files'));
-    console.log("firstRow : ", this.get('firstRow'));
+    console.log("header : ", this.get('header'),
+      ". rows : ",this.get('rows'),". error : ", this.get('error'),
+      " isFirstRowHeader : ", this.get('isFirstRowHeader'),
+      "firstRow : ", this.get('firstRow'));
   },
 
-  generateTempTableName : function(){
+  generateTempTableName: function () {
     var text = "";
     var possible = "abcdefghijklmnopqrstuvwxyz";
 
-    for( var i=0; i < 30; i++ )
+    for (var i = 0; i < 30; i++)
       text += possible.charAt(Math.floor(Math.random() * possible.length));
 
     return text;
@@ -173,21 +269,22 @@ export default Ember.Controller.extend({
   waitForJobStatus: function (jobId, resolve, reject) {
     console.log("finding status of job: ", jobId);
     var self = this;
-    var fetchJobPromise = this.get('jobService').fetchJobStatus(jobId);
+    var fetchJobPromise = this.get('jobService').fetchJob(jobId);
       fetchJobPromise.then(function (data) {
         console.log("waitForJobStatus : data : ", data);
-        var status = data.jobStatus;
-        if (status == "SUCCEEDED") {
+        var job = data.job;
+        var status = job.status.toUpperCase();
+        if (status == constants.statuses.succeeded ) {
           console.log("resolving waitForJobStatus with : " , status);
-          resolve(status);
-        } else if (status == "CANCELED" || status == "CLOSED" || status == "ERROR") {
+          resolve(job);
+        } else if (status == constants.statuses.canceled || status == constants.statuses.closed || status == constants.statuses.error) {
           console.log("rejecting waitForJobStatus with : " + status);
-          reject(new Error(status));
+          reject(new Error(job.statusMessage));
         } else {
-          console.log("retrying waitForJobStatus : ");
-          Ember.run.later(self, function() {
-            this.waitForJobStatus(jobId, resolve, reject);
-          }, 1000);
+          Ember.run.later(function(){
+            console.log("retrying waitForJobStatus : ", jobId);
+            self.waitForJobStatus(jobId, resolve, reject);
+          },1000);
         }
       }, function (error) {
         console.log("rejecting waitForJobStatus with : " + error);
@@ -198,108 +295,173 @@ export default Ember.Controller.extend({
   uploadForPreview: function (files) {
     console.log("uploaderForPreview called.");
     var self = this;
-    return this.get('uploader').uploadFiles('preview', files, {"isFirstRowHeader" : self.get("isFirstRowHeader"), "inputFileType" : self.get("inputFileType").id});
+    var csvParams = this.getCSVParams();
+
+    return this.get('uploader').uploadFiles('preview', files, {
+      "isFirstRowHeader": self.get("isFirstRowHeader"),
+      "inputFileType": self.get("inputFileType").id,
+      "csvDelimiter": csvParams.csvDelimiter,
+      "csvEscape": csvParams.csvEscape,
+      "csvQuote": csvParams.csvQuote
+    });
   },
 
-  uploadForPreviewFromHDFS : function(){
-    console.log("uploadForPreviewFromHDFS called.");
-    return this.get('uploader').previewFromHDFS({"isFirstRowHeader" : this.get("isFirstRowHeader"),"inputFileType" : this.get("inputFileType").id , "hdfsPath" : this.get("hdfsPath") });
-  },
-
-  generatePreview : function(files){
-    var self = this;
-    var promise = null;
-    this.waitForGeneratingPreview();
-    if(this.get('isLocalUpload')){
-      promise = this.uploadForPreview(files);
-    }else{
-      promise = this.uploadForPreviewFromHDFS();
+  getAsciiChar : function(key){
+    if(!key){
+      return null;
     }
 
-    return promise.then(function (data) {
-        self.onGeneratePreviewSuccess(data);
-    }, function (error) {
-        self.onGeneratePreviewFailure(error);
+    var value = this.get(key);
+    if(value && value.id != -1) {
+      return String.fromCharCode(value.id);
+    }else{
+      return null;
+    }
+  },
+  getCSVParams : function(){
+    var csvd = this.getAsciiChar('csvDelimiter');
+    if(!csvd && csvd != 0) csvd = this.get('DEFAULT_CSV_DELIMITER');
+
+    var csvq = this.getAsciiChar('csvQuote');
+    if(!csvq && csvq != 0) csvq = this.get('DEFAULT_CSV_QUOTE');
+
+    var csve = this.getAsciiChar('csvEscape');
+    if(!csve && csve != 0) csve = this.get('DEFAULT_CSV_ESCAPE');
+
+    return {"csvDelimiter": csvd, "csvQuote" : csvq, "csvEscape": csve};
+  },
+
+  uploadForPreviewFromHDFS: function () {
+    console.log("uploadForPreviewFromHDFS called.");
+    var self = this;
+    var hdfsPath = this.get("hdfsPath");
+    this.validateHDFSPath(hdfsPath);
+    var csvParams = this.getCSVParams();
+
+    return this.get('uploader').previewFromHDFS({
+      "isFirstRowHeader": this.get("isFirstRowHeader"),
+      "inputFileType": this.get("inputFileType").id,
+      "hdfsPath": hdfsPath,
+      "csvDelimiter": csvParams.csvDelimiter,
+      "csvEscape": csvParams.csvEscape ,
+      "csvQuote": csvParams.csvQuote
     });
+  },
+
+  generatePreview: function (files) {
+    var self = this;
+    var promise = null;
+    try {
+      this.waitForGeneratingPreview();
+      if (this.get('isLocalUpload')) {
+        promise = this.uploadForPreview(files);
+      } else {
+        promise = this.uploadForPreviewFromHDFS();
+      }
+
+      return promise.then(function (data) {
+        self.onGeneratePreviewSuccess(data);
+      }, function (error) {
+        self.onGeneratePreviewFailure(error);
+      }).catch(function (error) {
+        console.log("inside catch : ", error);
+      }).finally(function () {
+        console.log("finally hide the modal always after preview.");
+        self.hideUploadModal();
+      });
+    }catch(e){
+      // exception before promise will be caught here.
+      console.log("exception before promise : ", e);
+      self.setError(e);
+    }finally{
+      console.log("finally hide the modal always after preview.");
+      self.hideUploadModal();
+    }
   },
 
   waitForGeneratingPreview: function () {
     console.log("waitForGeneratingPreview");
     this.showUploadModal();
-    this.pushUploadProgressInfos("<li> Generating Preview .... </li>")
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.generatingPreview'))
   },
 
   previewTable: function (data) {
     console.log('inside previewTable');
+    var self = this;
+    var defaultColumnNames = data.header.map(function(item,index){
+      return self.COLUMN_NAME_PREFIX + (index + 1);
+    });
+    this.set("defaultColumnNames",defaultColumnNames);
     this.set("header", data.header);
-    this.set("firstRow", data.rows[0].row);
-    console.log("firstRow : ", this.get('firstRow'));
     this.set('isFirstRowHeader', data.isFirstRowHeader);
-    this.set('tableName',data.tableName);
-    if(data.isFirstRowHeader == true){
-        data.rows = data.rows.slice(1);
+    this.set('tableName', data.tableName);
+    var firstRow = null;
+    if (data.isFirstRowHeader == true) {
+      firstRow = data.header.map(function(columnDesc){
+        return columnDesc.name;
+      });
+    }else {
+      if(data.rows.length > 0){
+        firstRow = data.rows[0].row;
+      }else{
+        firstRow = [];
+      }
     }
+    this.set("firstRow", firstRow);
     this.set("rows", data.rows);
   },
 
   onGeneratePreviewSuccess: function (data) {
     console.log("onGeneratePreviewSuccess");
+    this.set("showPreview",true);
     this.hideUploadModal();
     this.previewTable(data);
   },
 
   onGeneratePreviewFailure: function (error) {
     console.log("onGeneratePreviewFailure");
+    this.set("showPreview",false);
     this.hideUploadModal();
     this.setError(error);
   },
 
-  createTable: function () {
-    console.log("table headers : ", this.get('header'));
+  createActualTable: function () {
+    console.log("createActualTable");
+    var self = this;
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.startingToCreateActualTable'));
     var headers = this.get('header');
-
     var selectedDatabase = this.get('selectedDatabase');
-    if (null == selectedDatabase || typeof selectedDatabase === 'undefined') {
-      throw new Error(Ember.I18n.t('hive.errors.emptyDatabase'));
+    if (!selectedDatabase) {
+      throw new Error(this.translate('hive.errors.emptyDatabase', {database : this.translate("hive.words.database")}));
     }
 
-    this.set('databaseName', this.get('selectedDatabase').get('name'));
+    this.set('databaseName', this.get('selectedDatabase.id'));
     var databaseName = this.get('databaseName');
     var tableName = this.get('tableName');
     var isFirstRowHeader = this.get('isFirstRowHeader');
     var filetype = this.get("selectedFileType");
 
-    if (null == databaseName || typeof databaseName === 'undefined' || databaseName == '') {
-      throw new Error(Ember.I18n.t('hive.errors.emptyDatabase'));
-    }
-    if (null == tableName || typeof tableName === 'undefined' || tableName == '') {
-      throw new Error(Ember.I18n.t('hive.errors.emptyTableName'));
-    }
-    if (null == isFirstRowHeader || typeof isFirstRowHeader === 'undefined') {
-      throw new Error(Ember.I18n.t('hive.errors.emptyIsFirstRow'));
-    }
-
-    this.validateColumns();
-
+    this.validateInput(headers,tableName,databaseName,isFirstRowHeader);
+    this.showUploadModal();
+    var rowFormat = this.getRowFormat();
     return this.get('uploader').createTable({
       "isFirstRowHeader": isFirstRowHeader,
       "header": headers,
       "tableName": tableName,
       "databaseName": databaseName,
-      "fileType":filetype
+      "hiveFileType":filetype,
+      "rowFormat": { "fieldsTerminatedBy" : rowFormat.fieldsTerminatedBy, "escapedBy" : rowFormat.escapedBy}
     });
   },
-
-  createActualTable : function(){
-    console.log("createActualTable");
-    this.pushUploadProgressInfos("<li> Starting to create Actual table.... </li>");
-    return this.createTable();
+  getRowFormat : function(){
+    var fieldsTerminatedBy = this.getAsciiChar('fieldsTerminatedBy');
+    var escapedBy = this.getAsciiChar('escapedBy');
+    return {"fieldsTerminatedBy": fieldsTerminatedBy, "escapedBy" : escapedBy};
   },
-
   waitForCreateActualTable: function (jobId) {
     console.log("waitForCreateActualTable");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Waiting for creation of Actual table.... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.waitingToCreateActualTable'));
     var self = this;
     var p = new Ember.RSVP.Promise(function (resolve, reject) {
       self.waitForJobStatus(jobId, resolve, reject);
@@ -307,38 +469,46 @@ export default Ember.Controller.extend({
 
     return p;
   },
-
-  onCreateActualTableSuccess : function(){
+  onCreateActualTableSuccess: function () {
     console.log("onCreateTableSuccess");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Successfully created Actual table. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.successfullyCreatedActualTable'));
   },
-
-  onCreateActualTableFailure : function(error){
+  onCreateActualTableFailure: function (error) {
     console.log("onCreateActualTableFailure");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Failed to create Actual table. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.failedToCreateActualTable'));
     this.setError(error);
   },
-
-  createTempTable : function(){
+  createTempTable: function () {
+    var self = this;
     console.log("createTempTable");
-    this.pushUploadProgressInfos("<li> Starting to create Temporary table.... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.startingToCreateTemporaryTable'));
     var tempTableName = this.generateTempTableName();
-    this.set('tempTableName',tempTableName);
+    this.set('tempTableName', tempTableName);
+
+    var headers = this.get("header");
+    if(this.get("containsEndlines")){
+      headers = this.get("header").map(function(item){
+        var header = JSON.parse(JSON.stringify(item));
+        header.type = "STRING";
+        return header;
+      });
+    }
     return this.get('uploader').createTable({
       "isFirstRowHeader": this.get("isFirstRowHeader"),
-      "header": this.get("header"),
+      "header": headers,
       "tableName": tempTableName,
       "databaseName": this.get('databaseName'),
-      "fileType":"TEXTFILE"
+      "hiveFileType":"TEXTFILE",
+      "rowFormat": { "fieldsTerminatedBy" : parseInt('1', 10), "escapedBy" : null}
     });
   },
 
   waitForCreateTempTable: function (jobId) {
     console.log("waitForCreateTempTable");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Waiting for creation of Temporary table.... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.waitingToCreateTemporaryTable'));
     var self = this;
     var p = new Ember.RSVP.Promise(function (resolve, reject) {
       self.waitForJobStatus(jobId, resolve, reject);
@@ -347,14 +517,14 @@ export default Ember.Controller.extend({
     return p;
   },
 
-  onCreateTempTableSuccess : function(){
+  onCreateTempTableSuccess: function () {
     console.log("onCreateTempTableSuccess");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Successfully created Temporary table. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.successfullyCreatedTemporaryTable'));
   },
 
   deleteTable : function(databaseName, tableName){
-    console.log("deleting table " + databaseName + "." + tableName);
+    console.log("deleting table ", databaseName , "." , tableName);
 
     return this.get('uploader').deleteTable({
       "database":  databaseName,
@@ -362,47 +532,52 @@ export default Ember.Controller.extend({
     });
   },
 
-  deleteTableOnError : function(databaseName,tableName, tableLabel){
-      //delete table and wait for delete job
+  deleteTableOnError: function (databaseName, tableName, tableLabel) {
+    //delete table and wait for delete job
     var self = this;
-    this.pushUploadProgressInfos("<li> Deleting " + tableLabel + " table...  </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.deletingTable',{table:tableLabel}));
 
-    return this.deleteTable(databaseName,tableName).then(function(data){
-      return new Ember.RSVP.Promise(function(resolve,reject){
-        self.waitForJobStatus(data.jobId,resolve,reject);
+    return this.deleteTable(databaseName, tableName).then(function (job) {
+      return new Ember.RSVP.Promise(function (resolve, reject) {
+        self.waitForJobStatus(job.id, resolve, reject);
       });
-    }).then(function(){
+    }).then(function () {
       self.popUploadProgressInfos();
-      self.pushUploadProgressInfos("<li> Successfully deleted " + tableLabel + " table. </li>");
+      self.pushUploadProgressInfos(this.formatMessage('hive.messages.succesfullyDeletedTable',{table:tableLabel}));
       return Ember.RSVP.Promise.resolve();
-    },function(err){
+    }, function (err) {
       self.popUploadProgressInfos();
-      self.pushUploadProgressInfos("<li> Failed to delete " + tableLabel + " table. </li>");
+      self.pushUploadProgressInfos(this.formatMessage('hive.messages.failedToDeleteTable',{table:tableLabel}));
       self.setError(err);
       return Ember.RSVP.Promise.reject();
     });
   },
 
   rollBackActualTableCreation : function(){
-    return this.deleteTableOnError(this.get("databaseName"),this.get("tableName"),"Actual");
+    return this.deleteTableOnError(this.get("databaseName"),this.get("tableName"),this.translate('hive.words.actual'));
   },
 
-
+  translate : function(str,vars){
+    return Ember.I18n.t(str,vars);
+  },
+  formatMessage : function(messageId, vars){
+    return "<li>" + this.translate(messageId,vars) + "</li>";
+  },
   onCreateTempTableFailure : function(error){
     console.log("onCreateTempTableFailure");
     this.setError(error);
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Failed to create temporary table. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.failedToCreateTemporaryTable'));
     return this.rollBackActualTableCreation().then(function(data){
       return Ember.RSVP.Promise.reject(error); // always reject for the flow to stop
-    },function(err){
+    }, function (err) {
       return Ember.RSVP.Promise.reject(error); // always reject for the flow to stop
     });
   },
 
-  uploadFile : function(){
+  uploadFile: function () {
     console.log("uploadFile");
-    this.pushUploadProgressInfos("<li> Starting to upload the file .... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.startingToUploadFile'));
     if( this.get("isLocalUpload")){
       return this.uploadTable();
     }else{
@@ -413,7 +588,7 @@ export default Ember.Controller.extend({
   waitForUploadingFile: function (data) {
     console.log("waitForUploadingFile");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Waiting for uploading file .... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.waitingToUploadFile'));
     if( data.jobId ){
       var self = this;
           var p = new Ember.RSVP.Promise(function (resolve, reject) {
@@ -428,12 +603,12 @@ export default Ember.Controller.extend({
   onUploadingFileSuccess: function () {
     console.log("onUploadingFileSuccess");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Successfully uploaded file. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.successfullyUploadedFile') );
   },
 
-  rollBackTempTableCreation : function(){
+  rollBackTempTableCreation: function () {
     var self = this;
-    return this.deleteTableOnError(this.get("databaseName"),this.get("tempTableName"),"Temporary").then(function(data){
+    return this.deleteTableOnError(this.get("databaseName"),this.get("tempTableName"),this.translate('hive.words.temporary')).then(function(data){
       return self.rollBackActualTableCreation();
     },function(err){
       return self.rollBackActualTableCreation();
@@ -444,7 +619,7 @@ export default Ember.Controller.extend({
     console.log("onUploadingFileFailure");
     this.setError(error);
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Failed to upload file. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.failedToUploadFile'));
     return this.rollBackTempTableCreation().then(function(data){
       return Ember.RSVP.Promise.reject(error); // always reject for the flow to stop
     },function(err){
@@ -458,20 +633,22 @@ export default Ember.Controller.extend({
 
   insertIntoTable : function(){
     console.log("insertIntoTable");
-    this.pushUploadProgressInfos("<li> Starting to Insert rows from temporary table to actual table .... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.startingToInsertRows'));
 
     return this.get('uploader').insertIntoTable({
-      "fromDatabase":  this.get("databaseName"),
+      "fromDatabase": this.get("databaseName"),
       "fromTable": this.get("tempTableName"),
       "toDatabase": this.get("databaseName"),
-      "toTable": this.get("tableName")
+      "toTable": this.get("tableName"),
+      "header": this.get("header"),
+      "unhexInsert": this.get("containsEndlines")
     });
   },
 
   waitForInsertIntoTable: function (jobId) {
     console.log("waitForInsertIntoTable");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Waiting for Insertion of rows from temporary table to actual table .... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.waitingToInsertRows'));
     var self = this;
     var p = new Ember.RSVP.Promise(function (resolve, reject) {
       self.waitForJobStatus(jobId, resolve, reject);
@@ -480,17 +657,17 @@ export default Ember.Controller.extend({
     return p;
   },
 
-  onInsertIntoTableSuccess : function(){
+  onInsertIntoTableSuccess: function () {
     console.log("onInsertIntoTableSuccess");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Successfully inserted rows from temporary table to actual table. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.successfullyInsertedRows'));
   },
 
-  onInsertIntoTableFailure : function(error){
+  onInsertIntoTableFailure: function (error) {
     console.log("onInsertIntoTableFailure");
     this.setError(error);
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Failed to insert rows from temporary table to actual table. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.failedToInsertRows'));
     return this.rollBackUploadFile().then(function(data){
       return Ember.RSVP.Promise.reject(error); // always reject for the flow to stop
     },function(err){
@@ -500,18 +677,17 @@ export default Ember.Controller.extend({
 
   deleteTempTable : function(){
     console.log("deleteTempTable");
-    this.pushUploadProgressInfos("<li> Starting to delete temporary table .... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.startingToDeleteTemporaryTable'));
 
     return this.deleteTable(
       this.get("databaseName"),
       this.get("tempTableName")
     );
   },
-
   waitForDeleteTempTable: function (jobId) {
     console.log("waitForDeleteTempTable");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li> Waiting for deletion of temporary table .... </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.waitingToDeleteTemporaryTable'));
     var self = this;
     var p = new Ember.RSVP.Promise(function (resolve, reject) {
       self.waitForJobStatus(jobId, resolve, reject);
@@ -519,47 +695,47 @@ export default Ember.Controller.extend({
 
     return p;
   },
-
-  onDeleteTempTableSuccess : function(){
+  onDeleteTempTableSuccess: function () {
     console.log("onDeleteTempTableSuccess");
     this.popUploadProgressInfos();
-    this.pushUploadProgressInfos("<li>Successfully inserted row. </li>");
+    this.pushUploadProgressInfos(this.formatMessage('hive.messages.successfullyDeletedTemporaryTable'));
     this.onUploadSuccessfull();
   },
-
-  onDeleteTempTableFailure : function(error){
+  onDeleteTempTableFailure: function (error) {
     console.log("onDeleteTempTableFailure");
     this.setError(error);
-    this.setError("You will have to manually delete the table " + this.get("databaseName") + "." + this.get("tempTableName"));
+    this.setError(this.formatMessage('hive.messages.manuallyDeleteTable',{databaseName:this.get('databaseName'), tableName: this.get("tempTableName")}));
   },
-
-  createTableAndUploadFile : function(){
+  validateHDFSPath: function (hdfsPath) {
+    if (null == hdfsPath || hdfsPath == "") throw new Error(this.translate('hive.errors.emptyHdfsPath'));
+    var hdfsRegex = new RegExp(this.get("HDFS_PATH_REGEX"), "g");
+    var mArr = hdfsPath.match(hdfsRegex);
+    if (mArr == null || mArr.length != 1) throw new Error(this.translate('hive.errors.illegalHdfPath', {"hdfsPath": hdfsPath} ));
+  },
+  createTableAndUploadFile: function () {
     var self = this;
     self.setError();
-    self.showUploadModal();
     self.createActualTable()
-      .then(function(data){
-        console.log("1. received data : ", data);
-        return self.waitForCreateActualTable(data.jobId);
+      .then(function(job){
+        console.log("1. received job : ", job);
+        return self.waitForCreateActualTable(job.id);
       },function(error){
-        self.onCreateActualTableFailure(error);
         console.log("Error occurred: ", error);
+        self.onCreateActualTableFailure(error);
         throw error;
       })
       .then(function(data){
-        console.log("2. received data : ", data);
         self.onCreateActualTableSuccess(data);
         return self.createTempTable(data);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
-          self.onCreateActualTableFailure(new Error("Server job for creation of actual table failed."));
+          self.onCreateActualTableFailure(error);
         }
         throw error;
       })
-      .then(function(data){
-        console.log("3. received data : ", data);
-        return self.waitForCreateTempTable(data.jobId);
+      .then(function(job){
+        return self.waitForCreateTempTable(job.id);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
@@ -568,17 +744,15 @@ export default Ember.Controller.extend({
         throw error;
       })
       .then(function(data){
-        console.log("4. received data : ", data);
         self.onCreateTempTableSuccess(data);
         return self.uploadFile(data);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
-          return self.onCreateTempTableFailure(new Error("Server job for creation of temporary table failed."));
+          return self.onCreateTempTableFailure(error);
         }
         throw error;
       }).then(function(data){
-        console.log("4.5 received data : ", data);
         return self.waitForUploadingFile(data);
       },function(error){
         if(!self.get('error')){
@@ -588,19 +762,17 @@ export default Ember.Controller.extend({
         throw error;
       })
       .then(function(data){
-        console.log("5. received data : ", data);
         self.onUploadingFileSuccess(data);
         return self.insertIntoTable(data);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
-          return self.onUploadingFileFailure(new Error("Server job for upload of file failed."));
+          return self.onUploadingFileFailure(error);
         }
         throw error;
       })
-      .then(function(data){
-        console.log("6. received data : ", data);
-        return self.waitForInsertIntoTable(data.jobId);
+      .then(function(job){
+        return self.waitForInsertIntoTable(job.id);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
@@ -609,19 +781,17 @@ export default Ember.Controller.extend({
         throw error;
       })
       .then(function(data){
-        console.log("7. received data : ", data);
         self.onInsertIntoTableSuccess(data);
         return self.deleteTempTable(data);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
-          return self.onInsertIntoTableFailure(new Error("Server job for insert from temporary to actual table failed."));
+          return self.onInsertIntoTableFailure(error);
         }
         throw error;
       })
-      .then(function(data){
-        console.log("8. received data : ", data);
-        return self.waitForDeleteTempTable(data.jobId);
+      .then(function(job){
+        return self.waitForDeleteTempTable(job.id);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
@@ -630,65 +800,98 @@ export default Ember.Controller.extend({
         throw error;
       })
       .then(function(data){
-        console.log("9. received data : ", data);
         self.onDeleteTempTableSuccess(data);
       },function(error){
         if(!self.get('error')){
           console.log("Error occurred: ", error);
-          self.onDeleteTempTableFailure(new Error("Server job for deleting temporary table failed."));
+          self.onDeleteTempTableFailure(error);
         }
         throw error;
-      }).catch(function(error){
+      })
+     .catch(function(error){
         console.log("inside catch : ", error);
-      }).finally(function(){
+      })
+      .finally(function(){
         console.log("finally hide the modal always");
         self.hideUploadModal();
       });
   },
-
-  validateColumns: function () {
+  validateInput: function (headers,tableName,databaseName,isFirstRowHeader) {
     // throw exception if invalid.
+    if(!headers || headers.length == 0) throw new Error(this.translate('hive.errors.emptyHeaders'));
+
+    var regex = new RegExp(this.get("COLUMN_NAME_REGEX"),"g");
+
+    headers.forEach(function(column,index){
+      if( !column  ) throw new Error(this.translate('hive.errors.emptyColumnName'));
+      var matchArr = column.name.match(regex);
+      if(matchArr == null || matchArr.length != 1 ) throw new Error(this.translate('hive.errors.illegalColumnName',{ columnName : column.name, index : (index + 1)}));
+    },this);
+
+    if(!tableName) throw new Error(this.translate('hive.errors.emptyTableName', {tableNameField : this.translate('hive.ui.tableName')}));
+    var tableRegex = new RegExp(this.get("TABLE_NAME_REGEX"),"g");
+    var mArr = tableName.match(tableRegex);
+    if(mArr == null || mArr.length != 1 ) throw new Error(this.translate('hive.errors.illegalTableName', {tableNameField:this.translate('hive.ui.tableName'),tableName:tableName}) );
+
+    if(!databaseName) throw new Error(this.translate('hive.errors.emptyDatabase', {database:this.translate('hive.words.database')}));
+
+    if (null == isFirstRowHeader || typeof isFirstRowHeader === 'undefined') { //this can be true or false. so explicitly checking for null/ undefined.
+      throw new Error(this.translate('hive.errors.emptyIsFirstRow', {isFirstRowHeaderField:this.translate('hive.ui.isFirstRowHeader')}));
+    }
   },
   setError: function (error) {
     if(error){
-      console.log("upload table error : ", error);
+      console.log(" error : ", error);
       this.set('error', JSON.stringify(error));
       this.get('notifyService').error(error);
     }else{
       this.set("error");
     }
   },
-
   previewError: function (error) {
     this.setError(error);
   },
-
   uploadTableFromHdfs : function(){
     console.log("uploadTableFromHdfs called.");
     if(!(this.get("inputFileTypeCSV") == true && this.get("isFirstRowHeader") == false) ){
-      this.pushUploadProgressInfos("<li>Uploading file .... </li>");
+      this.pushUploadProgressInfos(this.formatMessage('uploadingFromHdfs'));
     }
-    return  this.get('uploader').uploadFromHDFS({
-        "isFirstRowHeader": this.get("isFirstRowHeader"),
-        "databaseName" :  this.get('databaseName'),
-        "tableName" : this.get("tempTableName"),
-        "inputFileType" : this.get("inputFileType").id,
-        "hdfsPath" : this.get("hdfsPath")
-      });
+    var csvParams = this.getCSVParams();
+
+    return this.get('uploader').uploadFromHDFS({
+      "isFirstRowHeader": this.get("isFirstRowHeader"),
+      "databaseName": this.get('databaseName'),
+      "tableName": this.get("tempTableName"),
+      "inputFileType": this.get("inputFileType").id,
+      "hdfsPath": this.get("hdfsPath"),
+      "header": this.get("header"),
+      "containsEndlines": this.get("containsEndlines"),
+      "csvDelimiter": csvParams.csvDelimiter,
+      "csvEscape": csvParams.csvEscape,
+      "csvQuote": csvParams.csvQuote
+    });
   },
   uploadTable: function () {
     this.printValues();
+    var csvParams = this.getCSVParams();
+
     return this.get('uploader').uploadFiles('upload', this.get('files'), {
       "isFirstRowHeader": this.get("isFirstRowHeader"),
       "databaseName" :  this.get('databaseName'),
       "tableName" : this.get("tempTableName"),
-      "inputFileType" : this.get("inputFileType").id
+      "inputFileType" : this.get("inputFileType").id,
+      "header": JSON.stringify(this.get("header")),
+      "containsEndlines": this.get("containsEndlines"),
+      "csvDelimiter": csvParams.csvDelimiter,
+      "csvEscape": csvParams.csvEscape ,
+      "csvQuote": csvParams.csvQuote
     });
   },
 
   onUploadSuccessfull: function (data) {
     console.log("onUploadSuccessfull : ", data);
-    this.get('notifyService').success("Uploaded Successfully", "Table " + this.get('tableName') + " created in database " + this.get("databaseName"));
+    this.get('notifyService').success(this.translate('hive.messages.successfullyUploadedTableHeader'),
+      this.translate('hive.messages.successfullyUploadedTableMessage' ,{tableName:this.get('tableName') ,databaseName:this.get("databaseName")}));
     this.clearFields();
   },
 
@@ -707,12 +910,27 @@ export default Ember.Controller.extend({
   },
   displayOption: "display:none",
   actions: {
+    hideInputParamModal : function(){
+      Ember.$("#inputParamsModal").modal("hide");
+    },
+    showInputParamModal : function(){
+      if(this.get('inputFileTypeCSV')){
+        Ember.$("#inputParamsModal").modal("show");
+      }
+    },
+    hideRowFormatModal : function(){
+      Ember.$("#rowFormatModal").modal("hide");
+    },
+    showRowFormatModal : function(){
+      if(this.get('storedAsTextFile')) {
+        Ember.$("#rowFormatModal").modal("show");
+      }
+    },
     toggleErrors: function () {
       this.toggleProperty('showErrors');
     },
     filesUploaded: function (files) {
       console.log("upload-table.js : uploaded new files : ", files);
-
       this.clearFields();
 
       this.set('files', files);
@@ -723,20 +941,20 @@ export default Ember.Controller.extend({
       var self = this;
       return this.generatePreview(files)
     },
-    previewFromHdfs : function(){
+    previewFromHdfs: function () {
       return this.generatePreview();
     },
-    uploadTable : function(){
-      try{
+    uploadTable: function () {
+      try {
         this.createTableAndUploadFile();
-      }catch(e){
+      } catch (e) {
         console.log("exception occured : ", e);
         this.setError(e);
         this.hideUploadModal();
       }
     },
-    uploadFromHDFS : function(){
-      this.set("isLocalUpload",false);
+    uploadFromHDFS: function () {
+      this.set("isLocalUpload", false);
     }
   }
 });
