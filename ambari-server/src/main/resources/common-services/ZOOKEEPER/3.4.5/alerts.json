@@ -40,6 +40,7 @@
           "type": "PORT",
           "uri": "{{zoo.cfg/clientPort}}",
           "default_port": 2181,
+          "socket_command": "ruok",
           "reporting": {
             "ok": {
               "text": "TCP OK - {0:.3f}s response on port {1}"

@@ -33,6 +33,9 @@ public class PortSource extends Source {
   @SerializedName("default_port")
   private int m_port = 0;
 
+  @SerializedName("socket_command")
+  private String m_command = null;
+
   /**
    * @return the URI to check for a valid port
    */
@@ -61,6 +64,21 @@ public class PortSource extends Source {
    */
   public void setPort(int port) {
     m_port = port;
+  }
+
+  /**
+   * @return the command to check on the given URI.
+   */
+  public String getCommand() {
+    return m_command;
+  }
+
+  /**
+   * @param command
+   *          the command to check on the given URI.
+   */
+  public void setCommand(String command) {
+    m_command = command;
   }
 
   /**

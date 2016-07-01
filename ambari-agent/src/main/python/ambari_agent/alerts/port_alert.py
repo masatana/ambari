@@ -38,6 +38,7 @@ class PortAlert(BaseAlert):
 
     self.uri = None
     self.default_port = None
+    self.socket_command = None
     self.warning_timeout = DEFAULT_WARNING_TIMEOUT
     self.critical_timeout = DEFAULT_CRITICAL_TIMEOUT
 
@@ -60,6 +61,9 @@ class PortAlert(BaseAlert):
       if reporting_state_critical in reporting and \
         'value' in reporting[reporting_state_critical]:
         self.critical_timeout = reporting[reporting_state_critical]['value']
+    
+    if 'socket_command' in alert_source_meta:
+      self.socket_command = alert_source_meta['parameters']['socket_command']
 
 
     # check warning threshold for sanity
@@ -130,6 +134,9 @@ class PortAlert(BaseAlert):
 
       start_time = time.time()
       s.connect((host, port))
+      if self.socket_command is not None:
+        s.sendall(self.socket_command)
+        s.recv(1024)
       end_time = time.time()
       milliseconds = end_time - start_time
       seconds = milliseconds / 1000.0
