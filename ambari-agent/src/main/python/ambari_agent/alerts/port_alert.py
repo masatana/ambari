@@ -63,7 +63,7 @@ class PortAlert(BaseAlert):
         self.critical_timeout = reporting[reporting_state_critical]['value']
     
     if 'socket_command' in alert_source_meta:
-      self.socket_command = alert_source_meta['parameters']['socket_command']
+      self.socket_command = alert_source_meta['socket_command']
 
 
     # check warning threshold for sanity
