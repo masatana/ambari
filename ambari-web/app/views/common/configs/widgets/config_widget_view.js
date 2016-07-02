@@ -30,6 +30,11 @@ App.ConfigWidgetView = Em.View.extend(App.SupportsDependentConfigs, App.WidgetPo
   config: null,
 
   /**
+   * @type {App.ConfigProperty}
+   */
+  copyFromConfig: null,
+
+  /**
    * Determines if user hover on widget-view
    * @type {boolean}
    */
@@ -372,6 +377,11 @@ App.ConfigWidgetView = Em.View.extend(App.SupportsDependentConfigs, App.WidgetPo
   willInsertElement: function() {
     var configConditions = this.get('config.configConditions');
     var configAction = this.get('config.configAction');
+    var isCopy =  this.get('config.copy');
+    if (!Em.empty(isCopy)) {
+      this.bindConfigValue();
+    }
+
     if (configConditions && configConditions.length) {
       this.configValueObserverForAttributes();
 
@@ -396,6 +406,9 @@ App.ConfigWidgetView = Em.View.extend(App.SupportsDependentConfigs, App.WidgetPo
     }
     if (this.get('config.configAction')) {
       this.removeObserver('config.value', this, this.configValueObserverForAction);
+    }
+    if (this.get('copyFromConfig')) {
+      this.removeObserver('copyFromConfig.value', this, this.configValueObserverForCopy);
     }
   },
 
@@ -478,6 +491,31 @@ App.ConfigWidgetView = Em.View.extend(App.SupportsDependentConfigs, App.WidgetPo
     }
   },
 
+  bindConfigValue: function() {
+    var serviceName = this.get('config.serviceName');
+    var fileName =  this.get('config.copy').split('/')[0] + '.xml';
+    var configName = this.get('config.copy').split('/')[1];
+
+    var serviceConfigs = this.get('controller.stepConfigs').findProperty('serviceName', serviceName).get('configs');
+    var config = serviceConfigs.filterProperty('filename',fileName).findProperty('name', configName);
+    this.addObserver('copyFromConfig.value', this, this.configValueObserverForCopy);
+    this.set('copyFromConfig',config);
+  },
+
+  configValueObserverForCopy: function() {
+    var copyFromConfig = this.get('copyFromConfig');
+    var displayName = copyFromConfig.get('displayName');
+    var value = copyFromConfig.get('value');
+    var description = copyFromConfig.get('description');
+    var config = this.get('config');
+    config.setProperties({
+      value:value,
+      initialValue:value,
+      displayName:displayName,
+      description:description
+    });
+  },
+
 
   /**
    *
@@ -496,6 +534,9 @@ App.ConfigWidgetView = Em.View.extend(App.SupportsDependentConfigs, App.WidgetPo
         var valueAttribute = App.StackConfigValAttributesMap[key] || key;
         var conditionalConfig = serviceConfigs.filterProperty('filename',conditionalConfigFileName).findProperty('name', conditionalConfigName);
         if (conditionalConfig) {
+          if (key === 'visible') {
+            conditionalConfig.set('hiddenBySection', !valueAttributes[key]);
+          }
           conditionalConfig.set(valueAttribute, valueAttributes[key]);
         }
       }
