@@ -123,7 +123,7 @@ public class PortSource extends Source {
       }
     } else if (!m_uri.equals(other.m_uri)) {
       return false;
-    } else if (!m_command.equals((other.m_command))) {
+    } else if (!m_command.equals(other.m_command)) {
       return false;
     }
 
