@@ -421,8 +421,7 @@ public class HdfsApi {
    *         permission is NULL.
    */
   private static String permissionToString(FsPermission p) {
-    return (p == null) ? "default" : "-" + p.getUserAction().SYMBOL
-        + p.getGroupAction().SYMBOL + p.getOtherAction().SYMBOL;
+    return (p == null) ? "default" : "-" + p.toString();
   }
 
   /**
